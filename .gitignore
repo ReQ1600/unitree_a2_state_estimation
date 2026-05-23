@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.eggs/
+*.egg-info/
+dist/
+build/
+third_party/
+assets/a2.xml
+*.ipynb_checkpoints/
+.DS_Store

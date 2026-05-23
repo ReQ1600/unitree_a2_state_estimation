@@ -1,0 +1,6 @@
+gtsam>=4.2
+mujoco>=3.8
+numpy>=1.26,<2.0
+pyyaml>=6.0
+matplotlib>=3.8
+tqdm>=4.66
