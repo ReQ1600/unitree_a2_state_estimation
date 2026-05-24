@@ -32,8 +32,8 @@ pip install gtsam mujoco numpy pyyaml matplotlib tqdm
 │   └── estimator/                # GTSAM / iSAM2 estimator core
 │       ├── gtsam_types.py        # Key generators, NavState helpers
 │       ├── imu_preintegrator.py  # Preintegration wrapper
-│       ├── factor_registry.py    # Factor plugin system (Phase D)
-│       ├── estimator.py          # Main iSAM2 loop (Phase E)
+│       ├── factor_registry.py    # Factor plugin system
+│       ├── estimator.py          # Main iSAM2 loop
 │       └── factors/               # Factor implementations (IMU, FK, contact...)
 ├── docs/                         # (optional) generated walkthroughs and docs
 ├── assets/                       # Symlinks to robot models / meshes
@@ -98,10 +98,6 @@ See the estimator implementation in `src/estimator/` for details on the registry
 - "Key X does not exist in Values": ensure your factor's `add_initial_estimate` inserts any referenced keys before `isam.update()` is called.
 - GTSAM constructor mismatches: the Python wrapper may expose different constructors than C++. Use `dir(gtsam)` and `help()` to inspect available signatures.
 - MuJoCo mesh load errors: ensure `simulation.model_path` points to the original model location in `third_party/unitree_rl_mjlab` or that `assets/` contains the required meshes.
-
-## Contacts
-
-If you have questions about the estimator implementation, inspect `src/estimator/` or open an issue in the project repository.
 
 ---
 
