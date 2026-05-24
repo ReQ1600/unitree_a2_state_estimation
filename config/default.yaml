@@ -1,0 +1,31 @@
+# default configuration for the Unitree A2 factor-graph state estimator.
+
+simulation:
+  model_path: "a2.xml"           # resolved by SimBridge (third_party/assets fallback)
+  duration: 3.0                  # total simulation time [s]
+  timestep: 0.002                # MuJoCo physics timestep [s]
+
+imu:
+  accel_noise_density: 0.01      # [m/s² / sqrt(Hz)]
+  gyro_noise_density: 0.001      # [rad/s / sqrt(Hz)]
+  accel_bias_rw: 0.0001          # [m/s³ / sqrt(Hz)]
+  gyro_bias_rw: 0.00001          # [rad/s² / sqrt(Hz)]
+  gravity: 9.81                  # gravity magnitude [m/s²]
+
+estimator:
+  keyframe_every_n_steps: 100    # add factor every N simulation steps
+  isam_relinearize_skip: 1       # relinearization frequency in iSAM2
+  prior_pose_sigma: 0.001        # prior uncertainty on pose [m, rad]
+  prior_vel_sigma: 0.01          # prior uncertainty on velocity [m/s]
+  prior_bias_sigma: 0.1          # prior uncertainty on IMU bias [m/s², rad/s]
+
+noise:
+  enabled: true                 # whether to add noise to IMU readings
+  accel_white_density: 0.03
+  gyro_white_density: 0.001
+  accel_bias_density: 0.001
+  gyro_bias_density: 0.0001
+
+output:
+  plot: true                     # show matplotlib plot after run
+  log_csv: false                 # save estimates to CSV
