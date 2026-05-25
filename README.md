@@ -20,6 +20,19 @@ If you don't have a `requirements.txt`, install the minimum required packages:
 pip install gtsam mujoco numpy pyyaml matplotlib tqdm
 ```
 
+## Third-party dependency
+
+This project expects the Unitree MuJoCo assets and XML files from `unitree_rl_mjlab` to live under `third_party/unitree_rl_mjlab`.
+
+Clone it like this:
+
+```bash
+mkdir -p third_party
+git clone https://github.com/unitreerobotics/unitree_rl_mjlab.git third_party/unitree_rl_mjlab
+```
+
+If you keep the repo elsewhere, update the model path in `config/default.yaml` or the bridge code so it can still find the A2 XML and meshes.
+
 ## Project structure (high level)
 
 ```
@@ -37,7 +50,7 @@ pip install gtsam mujoco numpy pyyaml matplotlib tqdm
 │       └── factors/               # Factor implementations (IMU, FK, contact...)
 ├── docs/                         # (optional) generated walkthroughs and docs
 ├── assets/                       # Symlinks to robot models / meshes
-├── third_party/                  # Cloned repos (unitree_rl_mjlab)
+├── third_party/                  # Local clone of unitree_rl_mjlab
 └── tests/                        # Unit tests for bridge / preintegrator
 ```
 
@@ -80,7 +93,7 @@ Run the unit tests (bridge and preintegrator):
 
 ```bash
 source .venv/bin/activate
-PYTHONPATH=. python3 tests/test_brige.py
+PYTHONPATH=. python3 tests/test_phase_c.py && PYTHONPATH=. python3 tests/test_brige.py
 ```
 
 ## Developer notes (how to add a new factor)
