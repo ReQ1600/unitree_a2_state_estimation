@@ -79,8 +79,33 @@ class ForwardKinematicFactor(BaseFactor):
             graph.add(factor)
     
     def _f_R(self, alpha):
-        pass
+        """
+        calculates orintation based on (12) & (13)
+        alpha: leg encoder data
+        """
+        
+        A = self.kinematic_constants['A']
+        axes = self.kinematic_constants['axes']
 
+        # accumulated rotation init
+        f_R_total = gtsam.Rot3()
+
+        for n in range(len(alpha)):
+            A_n = gtsam.Rot3(A[n])
+
+            #alpha_n^dagger
+            joint_axis_vec = np.zeros(3)
+            joint_axis_vec[axes[n]] = alpha[n]
+            joint_rot = gtsam.Rot3.Expmap(joint_axis_vec)
+
+            #R = R * A_n * Exp(alpha_n^dagger)
+            f_R_total = f_R_total.compose(A_n).compose(joint_rot)
+
+        #transform to contact point
+        f_R_total = f_R_total.compose(gtsam.Rot3(A[-1]))
+
+        return f_R_total
+        
     def _f_p(self, alpha):
         pass
 
