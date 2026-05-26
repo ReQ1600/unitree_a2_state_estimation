@@ -69,12 +69,33 @@ class ForwardKinematicFactor(BaseFactor):
             d_i = contact_pose.translation()
 
             # rotation residual calculation Log(f_R^T * R^T * C) (21)
-            r_fRi = gtsam.Rot3(fk_R).inverse().compose(R_i.inverse().compose(C_i)).logmap()
+            r_R = gtsam.Rot3(fk_R).inverse().compose(R_i.inverse().compose(C_i)).logmap()
 
             #position residual calculation R^T * (d - p) - f_p (21)
             r_p = R_i.unrotate(d_i - p_i) - fk_p
 
-            #TODO: calculate H jacobians for base and contact
+            #H jacobian calculation
+            #H0 - jacobian with respect to the base
+            H0 = np.zeros((6, 6))
+
+            #rotation with respect to the base rotation
+            H0[0:3, 0:3] = -gtsam.Rot3.InverseRightJacobian(r_R) @ C_i.transpose().compose(R_i).matrix()
+            
+            # position with respect tot the base rotation
+            H0[3:6, 0:3] = gtsam.skewSymmetric(R_i.unrotate(d_i - p_i))
+
+            #H1 - jacobian with respect to the contact frame
+            H1 = np.zeros((6, 6))
+
+            #rotation with respect to the contact rotation
+            H1[0:3, 0:3] = gtsam.Rot3.InverseRightJacobian(r_R)
+
+            #position with respect to the contact translaction
+            H1[3:6, 3:6] = R_i.transpose().compose(C_i).matrix()
+
+            if H is not None:
+                H = H0
+                H[4] = H1
 
             factor = gtsam.CustomFactor(noise_model, [base_key, contact_key], err_func)
             graph.add(factor)
