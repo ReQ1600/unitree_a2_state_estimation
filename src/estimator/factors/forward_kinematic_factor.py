@@ -1,5 +1,6 @@
 import gtsam
 import numpy as np
+import scipy
 from ..factor_registry import BaseFactor
 
 class ForwardKinematicFactor(BaseFactor):
@@ -71,7 +72,7 @@ class ForwardKinematicFactor(BaseFactor):
             r_fRi = gtsam.Rot3(fk_R).inverse().compose(R_i.inverse().compose(C_i)).logmap()
 
             #position residual calculation R^T * (d - p) - f_p (21)
-            res_p = R_i.unrotate(d_i - p_i) - fk_p
+            r_p = R_i.unrotate(d_i - p_i) - fk_p
 
             #TODO: calculate H jacobians for base and contact
 
@@ -88,26 +89,120 @@ class ForwardKinematicFactor(BaseFactor):
         axes = self.kinematic_constants['axes']
 
         # accumulated rotation init
-        f_R_total = gtsam.Rot3()
+        R_total = gtsam.Rot3()
 
         for n in range(len(alpha)):
             A_n = gtsam.Rot3(A[n])
 
-            #alpha_n^dagger
+            # Exp(alpha_n^dagger)
             joint_axis_vec = np.zeros(3)
             joint_axis_vec[axes[n]] = alpha[n]
             joint_rot = gtsam.Rot3.Expmap(joint_axis_vec)
 
-            #R = R * A_n * Exp(alpha_n^dagger)
-            f_R_total = f_R_total.compose(A_n).compose(joint_rot)
+            #R = R * A_n * Exp(alpha_n^dagger), multiplies all rotation matrices
+            R_total = R_total.compose(A_n).compose(joint_rot)
 
         #transform to contact point
-        f_R_total = f_R_total.compose(gtsam.Rot3(A[-1]))
+        R_total = R_total.compose(gtsam.Rot3(A[-1]))
 
-        return f_R_total
+        return R_total
         
     def _f_p(self, alpha):
-        pass
+        """
+        calculates position based on (12) & (13)
+        alpha: leg encoder data
+        """
+
+        A = self.kinematic_constants['A']
+        t = self.kinematic_constants['t']
+        axes = self.kinematic_constants['axes']
+
+        p_total = np.zeros(3)
+        current_R = gtsam.Rot3() # current rotation matrix relative to the base
+
+        for n in range(len(alpha)):
+            t_in_base = current_R.rotate(np.array(t[n]))
+            p_total += t_in_base
+
+            A_n = gtsam.Rot3(A[n])
+
+            #A_1n
+            joint_axis_vec = np.zeros(3)
+            joint_axis_vec[axes[n]] = alpha[n]
+            joint_rot = gtsam.Rot3.Expmap(joint_axis_vec)
+
+            current_R = current_R.compose(A_n).compose(joint_rot)
+
+        #transform to contact point
+        p_total += current_R.rotate(np.array(t[-1]))
+
+        return p_total
+
 
     def _calculate_covariance(self, alpha):
-        pass
+        Q_blocks = []
+        S_blocks = []
+
+        sigma_blocks = []
+        for i in range(len(alpha)):
+            block = np.zeros((3,3))
+            axis = self.kinematic_constants['axes'][i]
+            block[axis, axis] = self.encoder_sigma**2
+            sigma_blocks.append(block)
+        
+        sigma_alpha_dagger = scipy.linalg(*sigma_blocks)
+
+        #calculating Qi and Si blocks for every state
+        for i in range(len(alpha)):
+            #calculating Qi = A_{i+1, N+1}^T
+            Qi = self._get_rotation_between(i + 1, len(alpha) + 1, alpha).transpose()
+            Q_blocks.append(Qi)
+
+            #calculating Si (23)
+            Si = np.zeros((3, 3))
+            for n in range(i, len(alpha)):
+                A1_nplus1 = self._get_rotation_between(1, n + 2, alpha)
+                Aiplus1_nplus1_T = self._get_rotation_between(i + 1, n + 2, alpha).transpose()
+                
+                tn_plus_1 = self.kinematic_constants['t'][n]
+                t_hat = gtsam.skewSymmetric(tn_plus_1)
+                
+                Si -= A1_nplus1 @ t_hat @ Aiplus1_nplus1_T
+            S_blocks.append(Si)
+
+        Q = np.hstack(Q_blocks)
+        S = np.hstack(S_blocks)
+
+        #calculating jacobian M = [Q; S]
+        M = np.vstack([Q, S])
+
+        return M @ sigma_alpha_dagger @ M.T
+
+    def _get_rotation_between(self, start, end, alpha):
+        """
+        alpha: current joint states
+        """
+
+        if start == end:
+            return gtsam.Rot3().matrix()
+        
+        A = self.kinematic_constants['A']
+        axes = self.kinematic_constants['axes']
+
+        r_R = gtsam.Rot3()
+
+        #publication starts at 1 but python indexes from 0
+        for i in range(start - 1, end - 1):
+            A_i = gtsam.Rot3(A[i])
+
+            # if not the last transform which is constant
+            if i < len(alpha):
+                joint_vec = np.zeros(3)
+                joint_vec[axes[i]] = alpha[i]
+                joint_rot = gtsam.Rot3.Expmap(joint_vec)
+                r_R = r_R.compose(A_i).compose(joint_rot)
+            else:
+                #if it is the last transformation to foot the transformation is constant so no need to rotate it
+                res_R = res_R.compose(A_i)
+        
+        return res_R.compose(A_i)
