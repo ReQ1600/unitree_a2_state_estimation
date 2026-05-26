@@ -20,6 +20,7 @@ from src.bridge.sensor_noise import ImuNoiseGenerator, ImuNoiseParams
 from src.estimator.imu_preintegrator import ImuPreintegrator
 from src.estimator.factor_registry import FactorRegistry
 from src.estimator.factors.imu_factor import ImuFactorWrapper
+from src.estimator.factors.forward_kinematic_factor import ForwardKinematicFactor
 from src.estimator.estimator import Estimator
 
 
@@ -71,6 +72,10 @@ def main():
     )
     registry.register(imu_factor)
 
+    # registering forward kinematic factor for 4 legs
+    for i in range(3):
+        registry.register(ForwardKinematicFactor(i, 0.00873))
+
     # inisialise main solver object
     estimator = Estimator(est_cfg, registry, preint_params)
 
@@ -84,6 +89,7 @@ def main():
     acc, gyro = bridge._extract_imu()
     pos, quat = bridge._extract_base_pose()
     contacts = bridge._extract_contacts()
+    joint_states = bridge._extract_joint_states()
 
     sensor_data = {
         'imu_acc': acc, #    corrupted by noise
@@ -91,6 +97,7 @@ def main():
         'base_pos': pos, #   usually ground truth
         'base_quat': quat,
         'foot_contacts': contacts,
+        'joint_states': joint_states,
         'dt': dt,
     }
 
@@ -120,6 +127,7 @@ def main():
             'base_pos': pos,
             'base_quat': quat,
             'foot_contacts': contacts,
+            'joint_states': joint_states,
             'dt': dt,
         }
         # pass noisy measurements to imu preintegrator
