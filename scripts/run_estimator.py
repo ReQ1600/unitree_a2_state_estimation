@@ -25,6 +25,7 @@ from src.estimator.imu_preintegrator import ImuPreintegrator
 from src.estimator.factor_registry import FactorRegistry
 from src.estimator.factors.imu_factor import ImuFactorWrapper
 from src.estimator.factors.forward_kinematic_factor import ForwardKinematicFactor
+from src.estimator.factors.contact_factor import ContactFactor
 from src.estimator.estimator import Estimator
 
 
@@ -81,11 +82,14 @@ def main():
 
     # register factors
     registry = FactorRegistry()
-    est_cfg = cfg['estimator']
+
+    est_cfg = dict(cfg["estimator"])
+    est_cfg["contact_preintegration"] = cfg["contact_preintegration"]
+
     imu_factor = ImuFactorWrapper(
-        prior_pose_sigma=est_cfg.get('prior_pose_sigma', 0.001),
-        prior_vel_sigma=est_cfg.get('prior_vel_sigma', 0.01),
-        prior_bias_sigma=est_cfg.get('prior_bias_sigma', 0.1),
+        prior_pose_sigma=est_cfg.get("prior_pose_sigma", 0.001),
+        prior_vel_sigma=est_cfg.get("prior_vel_sigma", 0.01),
+        prior_bias_sigma=est_cfg.get("prior_bias_sigma", 0.1),
     )
     registry.register(imu_factor)
 
@@ -94,6 +98,13 @@ def main():
         registry.register(ForwardKinematicFactor(i, 0.00873, cfg['simulation']['model_path']))
 
     # inisialise main solver object
+    contact_cfg = cfg["contact_factor"]
+    contact_factor = ContactFactor(
+        prior_contact_sigma=contact_cfg["prior_contact_sigma"]
+    )
+    registry.register(contact_factor)
+
+    # initialise main solver object
     estimator = Estimator(est_cfg, registry, preint_params)
 
     # main loop
@@ -108,6 +119,7 @@ def main():
     pos, quat = bridge._extract_base_pose()
     contacts = bridge._extract_contacts()
     joint_states = bridge._extract_joint_states()
+    fk_contact_rotation = bridge._extract_fk_contact_rotation()
 
     sensor_data = {
         'imu_acc': acc, #    corrupted by noise
@@ -116,6 +128,7 @@ def main():
         'base_quat': quat,
         'foot_contacts': contacts,
         'joint_states': joint_states,
+        'fk_contact_rotation': fk_contact_rotation, # usually identity or ground truth if available. See contact preintegrator docs.
         'dt': dt,
     }
 
@@ -152,6 +165,7 @@ def main():
             pos, quat = bridge._extract_base_pose()
             contacts = bridge._extract_contacts()
             joint_states = bridge._extract_joint_states()
+            fk_contact_rotation = bridge._extract_fk_contact_rotation()
 
             viewer.sync()
 
@@ -189,19 +203,21 @@ def main():
                 'base_quat': quat,
                 'foot_contacts': contacts,
                 'joint_states': joint_states,
+                'fk_contact_rotation': fk_contact_rotation,
                 'dt': dt,
             }
+
             # pass noisy measurements to imu preintegrator
             estimator.step(sensor_data)
             # estimator internally decides when to run isam2
 
-            #slow down the simulation to real time
+            # slow down the simulation to real time
             time_until_next_step = dt - (time.time() - step_start)
             if time_until_next_step > 0:
                 time.sleep(time_until_next_step)
-                
+
             if not viewer.is_running():
-                print("Window closed - sumulation terminated")
+                print("Window closed - simulation terminated")
                 break
 
     # results and visualisation
