@@ -39,6 +39,28 @@ def BiasKey(i: int) -> int:
     return 20000 + i
 
 
+def FootKey(foot_idx: int, step_idx: int) -> int:
+    """Deterministic key for a contact point of a specific foot at a timestep.
+    
+    Args:
+        foot_idx:  Foot index (0=FL, 1=FR, 2=RL, 3=RR).
+        step_idx:  Timestep / keyframe index.
+    
+    Returns:
+        Unique key for the foot contact point.
+    
+    Key numbering: 30000 + foot_idx * 10000 + step_idx
+    This avoids collisions with PoseKey (0-9999), VelKey (10000-19999), BiasKey (20000-29999).
+    """
+    return 30000 + foot_idx * 10000 + step_idx
+
+
+# Alias for clarity in contact-specific code
+def ContactKey(foot_idx: int, step_idx: int) -> int:
+    """Alias for FootKey. Represents contact point of a foot at a keyframe."""
+    return FootKey(foot_idx, step_idx)
+
+
 # mujoco uses [xyzw], gtsam wants [wxyz] smh
 # NavState = (pose3, vector3) 
 def make_navstate(position: np.ndarray,

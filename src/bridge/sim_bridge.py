@@ -133,3 +133,37 @@ class SimBridge:
                             contacts[idx] = 1.0
                             break
         return contacts
+
+    def _extract_joint_positions(self) -> np.ndarray:
+        """Return joint positions for the A2 robot.
+        
+        Extracts encoder readings for all actuated joints (typically 12 for A2: 3 per leg).
+        Returns a numpy array of shape (n_joints,), or empty array if joint data unavailable.
+        """
+        try:
+            # A2 typically has 12 actuated joints (3 DoF per leg)
+            # Heuristic: collect all joint qpos except for the base 7-DoF (pos + quat)
+            # Base is typically first 7 variables: [x, y, z, qx, qy, qz, qw]
+            if len(self.data.qpos) > 7:
+                # Joint positions start after the base (7 DoF)
+                joint_qpos = self.data.qpos[7:].copy()
+                return np.array(joint_qpos, dtype=float)
+            else:
+                # Fallback: return empty array if unexpected model structure
+                return np.array([], dtype=float)
+        except Exception:
+            # If something goes wrong, return zeros matching expected shape
+            return np.zeros(12, dtype=float)  # assuming 12 joints for A2
+
+    def _extract_contact_velocity(self) -> np.ndarray:
+        """Return contact point velocity measurements for [FL, FR, RL, RR].
+
+        Placeholder until FK/contact measurement pipeline is available.
+
+        The returned velocities must be expressed in the same frame as ContactKey
+        states, normally world frame.
+        """
+        return np.zeros((4, 3), dtype=float)
+
+    def _extract_fk_contact_rotation(self) -> np.ndarray:
+        return np.repeat(np.eye(3)[None, :, :], 4, axis=0)

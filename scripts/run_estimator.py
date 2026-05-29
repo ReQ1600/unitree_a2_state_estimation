@@ -20,6 +20,7 @@ from src.bridge.sensor_noise import ImuNoiseGenerator, ImuNoiseParams
 from src.estimator.imu_preintegrator import ImuPreintegrator
 from src.estimator.factor_registry import FactorRegistry
 from src.estimator.factors.imu_factor import ImuFactorWrapper
+from src.estimator.factors.contact_factor import ContactFactor
 from src.estimator.estimator import Estimator
 
 
@@ -63,15 +64,24 @@ def main():
 
     # register factors
     registry = FactorRegistry()
-    est_cfg = cfg['estimator']
+
+    est_cfg = dict(cfg["estimator"])
+    est_cfg["contact_preintegration"] = cfg["contact_preintegration"]
+
     imu_factor = ImuFactorWrapper(
-        prior_pose_sigma=est_cfg.get('prior_pose_sigma', 0.001),
-        prior_vel_sigma=est_cfg.get('prior_vel_sigma', 0.01),
-        prior_bias_sigma=est_cfg.get('prior_bias_sigma', 0.1),
+        prior_pose_sigma=est_cfg.get("prior_pose_sigma", 0.001),
+        prior_vel_sigma=est_cfg.get("prior_vel_sigma", 0.01),
+        prior_bias_sigma=est_cfg.get("prior_bias_sigma", 0.1),
     )
     registry.register(imu_factor)
 
-    # inisialise main solver object
+    contact_cfg = cfg["contact_factor"]
+    contact_factor = ContactFactor(
+        prior_contact_sigma=contact_cfg["prior_contact_sigma"]
+    )
+    registry.register(contact_factor)
+
+    # initialise main solver object
     estimator = Estimator(est_cfg, registry, preint_params)
 
     # main loop
@@ -84,6 +94,7 @@ def main():
     acc, gyro = bridge._extract_imu()
     pos, quat = bridge._extract_base_pose()
     contacts = bridge._extract_contacts()
+    fk_contact_rotation = bridge._extract_fk_contact_rotation()
 
     sensor_data = {
         'imu_acc': acc, #    corrupted by noise
@@ -91,6 +102,7 @@ def main():
         'base_pos': pos, #   usually ground truth
         'base_quat': quat,
         'foot_contacts': contacts,
+        'fk_contact_rotation': fk_contact_rotation, # usually identity or ground truth if available. See contact preintegrator docs.
         'dt': dt,
     }
 
@@ -109,7 +121,7 @@ def main():
         acc, gyro = bridge._extract_imu() # extracts raw data
         pos, quat = bridge._extract_base_pose()
         contacts = bridge._extract_contacts()
-
+        fk_contact_rotation = bridge._extract_fk_contact_rotation()
         # corrupt our readings
         if noise_gen:
             acc, gyro = noise_gen.corrupt(acc, gyro, dt)
@@ -120,6 +132,7 @@ def main():
             'base_pos': pos,
             'base_quat': quat,
             'foot_contacts': contacts,
+            'fk_contact_rotation': fk_contact_rotation,
             'dt': dt,
         }
         # pass noisy measurements to imu preintegrator

@@ -19,6 +19,15 @@ estimator:
   prior_vel_sigma: 0.01          # prior uncertainty on velocity [m/s]
   prior_bias_sigma: 0.1          # prior uncertainty on IMU bias [m/s², rad/s]
 
+contact_preintegration:
+  contact_velocity_noise_sigma: 0.1
+  minimum_contact_probability: 0.5
+  require_continuous_contact: true
+  covariance_epsilon: 1.0e-9
+
+contact_factor:
+  prior_contact_sigma: 0.01
+
 noise:
   enabled: true                 # whether to add noise to IMU readings
   accel_white_density: 0.03
