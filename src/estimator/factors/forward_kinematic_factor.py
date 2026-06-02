@@ -4,6 +4,7 @@ import scipy
 from ..factor_registry import BaseFactor
 import mujoco
 import os
+from typing import Any, Dict, List
 
 class ForwardKinematicFactor(BaseFactor):
     def __init__(self, leg_id, encoder_sigma, xml_path):
@@ -42,7 +43,14 @@ class ForwardKinematicFactor(BaseFactor):
         base_key = gtsam.symbol('x', step_idx)
         contact_key = gtsam.symbol('c', self.leg_id * 1000 + step_idx)
 
-        #init based on current base estimation and measurements
+        # init x_k from ground truth if doesnt exist 
+        if not vals.exists(base_key):
+            base_pos = sensor_data['base_pos']
+            base_quat = sensor_data['base_quat']
+            base_rot = gtsam.Rot3.Quaternion(base_quat[0], base_quat[1], base_quat[2], base_quat[3])
+            vals.insert(base_key, gtsam.Pose3(base_rot, base_pos))
+
+        # init based on current base estimation and measurements
         if not vals.exists(contact_key):
             if vals.exists(base_key):
                 base_pose = vals.atPose3(base_key)
@@ -68,6 +76,9 @@ class ForwardKinematicFactor(BaseFactor):
         base_key = gtsam.symbol('x', step_idx)
         contact_key = gtsam.symbol('c', self.leg_id * 1000 + step_idx)
         
+        if not values.exists(base_key) or not values.exists(contact_key):
+            return
+            
         print(f"DEBUG: Dostępne klucze w sensor_data: {sensor_data.keys()}")
         leg_encoder_data = sensor_data['joint_states'][self.leg_id]
 
@@ -123,19 +134,35 @@ class ForwardKinematicFactor(BaseFactor):
         factor = gtsam.CustomFactor(noise_model, [base_key, contact_key], err_func)
         graph.add(factor)
     
-    def add_prior(self, graph, values, sensor_data, context):
-        contact_key = gtsam.symbol('c', self.leg_id * 1000)
+    def add_prior(self,
+                  graph: gtsam.NonlinearFactorGraph,
+                  values: gtsam.Values,
+                  sensor_data: Dict[str, Any],
+                  context: Dict[str, Any]) -> None:
         
+        contact_key = gtsam.symbol('c', self.leg_id * 1000)
         base_key = gtsam.symbol('x', 0)
+        
+        #init from ground truth if doesnt exist
         if not values.exists(base_key):
-            return
+            base_pos = sensor_data['base_pos']
+            base_quat = sensor_data['base_quat'] # MuJoCo podaje [w, x, y, z]
+            base_rot = gtsam.Rot3.Quaternion(base_quat[0], base_quat[1], base_quat[2], base_quat[3])
+            base_pose = gtsam.Pose3(base_rot, base_pos)
+            
+            values.insert(base_key, base_pose)
+            
+            # base prior
+            base_noise = gtsam.noiseModel.Isotropic.Sigma(6, 0.01)
+            graph.add(gtsam.PriorFactorPose3(base_key, base_pose, base_noise))
+            
         base_pose = values.atPose3(base_key)
 
         alpha = sensor_data['joint_states'][self.leg_id]
         fk_R = self._f_R(alpha)
         fk_p = self._f_p(alpha)
 
-        contact_R = base_pose.rotation().compose(gtsam.Rot3(fk_R))
+        contact_R = base_pose.rotation().compose(fk_R)
         contact_p = base_pose.translation() + base_pose.rotation().rotate(fk_p)
         contact_pose = gtsam.Pose3(contact_R, contact_p)
 
