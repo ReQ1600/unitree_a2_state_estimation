@@ -2,31 +2,51 @@ import gtsam
 import numpy as np
 import scipy
 from ..factor_registry import BaseFactor
+import mujoco
+import os
 
 class ForwardKinematicFactor(BaseFactor):
-    def __init__(self, leg_id, encoder_sigma):
+    def __init__(self, leg_id, encoder_sigma, xml_path):
         """
         leg_id: leg identifier (0-3 for a2)
         encoder_sigma: encoder noise standard deviation
+        xml_path: path to a xml mujoco config file
         """
 
         self.leg_id = leg_id
         self.encoder_sigma = encoder_sigma
+
+        if not os.path.exists(xml_path):
+            # prefer the original third_party path so relative mesh references resolve
+            alt2 = os.path.join('third_party', 'unitree_rl_mjlab', 'src', 'assets', 'robots', 'unitree_a2', 'xmls', os.path.basename(xml_path))
+            if os.path.exists(alt2):
+                xml_path = alt2
+            else:
+                # try assets/ symlink as a fallback
+                alt = os.path.join('assets', os.path.basename(xml_path))
+                if os.path.exists(alt):
+                    xml_path = alt
+
+        self.kinematic_constants = self._build_kinematic_constants(xml_path)[leg_id]
     
-    def add_initial_estimate(self, vals, step_id, sensor_data, ctx):
+    @property
+    def sensor_fields(self):
+        return ['joint_states']
+    
+    def add_initial_estimate(self, vals, step_idx, sensor_data, ctx):
         """
         contact frame(Ci, di) position and orientation init
         """
 
         # base and leg contact keys  
-        base_key = gtsam.symbol('x', step_id)
-        contact_key = gtsam.symbol('c', self.leg_id * 1000 + step_id)
+        base_key = gtsam.symbol('x', step_idx)
+        contact_key = gtsam.symbol('c', self.leg_id * 1000 + step_idx)
 
         #init based on current base estimation and measurements
-        if not vals.exsists(contact_key):
+        if not vals.exists(contact_key):
             if vals.exists(base_key):
                 base_pose = vals.atPose3(base_key)
-                alpha = sensor_data['joint_positions'][self.leg_id]
+                alpha = sensor_data['joint_states'][self.leg_id]
 
                 #calculated based on a2 model
                 R_bc = self._f_R(alpha)
@@ -35,25 +55,26 @@ class ForwardKinematicFactor(BaseFactor):
                 # C = R * f_R
                 # d = p + R * f_p
                 contact_rot = base_pose.rotation().compose(gtsam.Rot3(R_bc))
-                contact_pos = base_pose.translation() + base_pose.rotation()
+                contact_pos = base_pose.translation() + base_pose.rotation().rotate(p_bc)
 
-                vals.insert(contact_key, gtsam.Pose(contact_rot), contact_pos)
+                vals.insert(contact_key, gtsam.Pose3(contact_rot, contact_pos))
     
-    def add_to_graph(self, graph, values, step_id, sensor_data, ctx):
+    def add_to_graph(self, graph, values, step_idx, sensor_data, context):
         """
         adds gtsam.CustomFactor to the graph calculating residues f_Ri and f_pi 
         """
 
         # base and leg contact keys  
-        base_key = gtsam.symbol('x', step_id)
-        contact_key = gtsam.symbol('c', self.leg_id * 1000 + step_id)
-
-        leg_encoder_data = sensor_data['joint_positions'][self.leg_id]
+        base_key = gtsam.symbol('x', step_idx)
+        contact_key = gtsam.symbol('c', self.leg_id * 1000 + step_idx)
+        
+        print(f"DEBUG: Dostępne klucze w sensor_data: {sensor_data.keys()}")
+        leg_encoder_data = sensor_data['joint_states'][self.leg_id]
 
         fk_R = self._f_R(leg_encoder_data)
         fk_p = self._f_p(leg_encoder_data)
         covariance = self._calculate_covariance(leg_encoder_data)
-        noise_model = gtsam.noiseModel.Covariance(covariance)
+        noise_model = gtsam.noiseModel.Gaussian.Covariance(covariance)
 
         def err_func(this, v, H):
             """
@@ -82,7 +103,7 @@ class ForwardKinematicFactor(BaseFactor):
             H0[0:3, 0:3] = -gtsam.Rot3.InverseRightJacobian(r_R) @ C_i.transpose().compose(R_i).matrix()
             
             # position with respect tot the base rotation
-            H0[3:6, 0:3] = gtsam.skewSymmetric(R_i.unrotate(d_i - p_i))
+            H0[3:6, 0:3] = skew(R_i.unrotate(d_i - p_i))
 
             #H1 - jacobian with respect to the contact frame
             H1 = np.zeros((6, 6))
@@ -95,11 +116,35 @@ class ForwardKinematicFactor(BaseFactor):
 
             if H is not None:
                 H = H0
-                H[4] = H1
+                H[1] = H1
+                
+            return np.hstack((r_R, r_p))
 
-            factor = gtsam.CustomFactor(noise_model, [base_key, contact_key], err_func)
-            graph.add(factor)
+        factor = gtsam.CustomFactor(noise_model, [base_key, contact_key], err_func)
+        graph.add(factor)
     
+    def add_prior(self, graph, values, sensor_data, context):
+        contact_key = gtsam.symbol('c', self.leg_id * 1000)
+        
+        base_key = gtsam.symbol('x', 0)
+        if not values.exists(base_key):
+            return
+        base_pose = values.atPose3(base_key)
+
+        alpha = sensor_data['joint_states'][self.leg_id]
+        fk_R = self._f_R(alpha)
+        fk_p = self._f_p(alpha)
+
+        contact_R = base_pose.rotation().compose(gtsam.Rot3(fk_R))
+        contact_p = base_pose.translation() + base_pose.rotation().rotate(fk_p)
+        contact_pose = gtsam.Pose3(contact_R, contact_p)
+
+        if not values.exists(contact_key):
+            values.insert(contact_key, contact_pose)
+
+        prior_noise = gtsam.noiseModel.Isotropic.Sigma(6, 0.1)
+        graph.add(gtsam.PriorFactorPose3(contact_key, contact_pose, prior_noise))
+
     def _f_R(self, alpha):
         """
         calculates orintation based on (12) & (13)
@@ -171,7 +216,7 @@ class ForwardKinematicFactor(BaseFactor):
             block[axis, axis] = self.encoder_sigma**2
             sigma_blocks.append(block)
         
-        sigma_alpha_dagger = scipy.linalg(*sigma_blocks)
+        sigma_alpha_dagger = scipy.linalg.block_diag(*sigma_blocks)
 
         #calculating Qi and Si blocks for every state
         for i in range(len(alpha)):
@@ -186,7 +231,7 @@ class ForwardKinematicFactor(BaseFactor):
                 Aiplus1_nplus1_T = self._get_rotation_between(i + 1, n + 2, alpha).transpose()
                 
                 tn_plus_1 = self.kinematic_constants['t'][n]
-                t_hat = gtsam.skewSymmetric(tn_plus_1)
+                t_hat = skew(tn_plus_1)
                 
                 Si -= A1_nplus1 @ t_hat @ Aiplus1_nplus1_T
             S_blocks.append(Si)
@@ -224,6 +269,128 @@ class ForwardKinematicFactor(BaseFactor):
                 r_R = r_R.compose(A_i).compose(joint_rot)
             else:
                 #if it is the last transformation to foot the transformation is constant so no need to rotate it
-                res_R = res_R.compose(A_i)
+                r_R = r_R.compose(A_i)
         
-        return res_R.compose(A_i)
+        return r_R.matrix()
+    
+
+    def _build_kinematic_constants(self, xml_path):
+        """
+        Build kinematic constants directly from MuJoCo A2 model.
+
+        Returns:
+        {
+            leg_id: {
+                "A": [...],
+                "t": [...],
+                "axes": [...]
+            }
+        }
+        """
+
+        model = mujoco.MjModel.from_xml_path(xml_path)
+        leg_map = {
+            0: "FL",
+            1: "FR",
+            2: "RL",
+            3: "RR",
+        }
+
+        kinematics = {}
+
+        for leg_id, prefix in leg_map.items():
+            joint_names = [
+                f"{prefix}_hip_joint",
+                f"{prefix}_thigh_joint",
+                f"{prefix}_calf_joint",
+            ]
+
+            body_names = [
+                f"{prefix}_hip",
+                f"{prefix}_thigh",
+                f"{prefix}_calf",
+            ]
+
+            A = []
+            t = []
+            axes = []
+
+            for body_name in body_names:
+                body_id = mujoco.mj_name2id(
+                    model,
+                    mujoco.mjtObj.mjOBJ_BODY,
+                    body_name
+                )
+
+                if body_id == -1:
+                    raise RuntimeError(f"Body not found: {body_name}")
+
+                # translation parent -> child
+                body_pos = model.body_pos[body_id].copy()
+
+                # quaternion parent -> child
+                body_quat = model.body_quat[body_id].copy()
+
+                # quat -> rotation matrix
+                R = np.zeros((3, 3))
+                mujoco.mju_quat2Mat(
+                    R.reshape(-1),
+                    body_quat
+                )
+
+                A.append(R)
+                t.append(body_pos)
+
+            # joint axes
+            for joint_name in joint_names:
+
+                jid = mujoco.mj_name2id(
+                    model,
+                    mujoco.mjtObj.mjOBJ_JOINT,
+                    joint_name
+                )
+
+                if jid == -1:
+                    raise RuntimeError(f"Joint not found: {joint_name}")
+
+                axis = model.jnt_axis[jid]
+
+                axis_idx = int(np.argmax(np.abs(axis)))
+
+                axes.append(axis_idx)
+
+            # transform calf -> foot
+            foot_site = prefix
+
+            site_id = mujoco.mj_name2id(
+                model,
+                mujoco.mjtObj.mjOBJ_SITE,
+                foot_site
+            )
+
+            if site_id == -1:
+                raise RuntimeError(f"Foot site not found: {foot_site}")
+
+            foot_pos = model.site_pos[site_id].copy()
+
+            # foot rotation
+            foot_R = np.eye(3)
+
+            A.append(foot_R)
+            t.append(foot_pos)
+
+            kinematics[leg_id] = {
+                "A": A,
+                "t": t,
+                "axes": axes
+            }
+
+        return kinematics
+    
+def skew(v):
+    v = np.asarray(v).reshape(3)
+    return np.array([
+        [0, -v[2], v[1]],
+        [v[2], 0, -v[0]],
+        [-v[1], v[0], 0]
+    ])

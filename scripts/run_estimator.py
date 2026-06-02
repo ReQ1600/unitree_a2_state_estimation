@@ -74,7 +74,7 @@ def main():
 
     # registering forward kinematic factor for 4 legs
     for i in range(3):
-        registry.register(ForwardKinematicFactor(i, 0.00873))
+        registry.register(ForwardKinematicFactor(i, 0.00873, cfg['simulation']['model_path']))
 
     # inisialise main solver object
     estimator = Estimator(est_cfg, registry, preint_params)
@@ -116,6 +116,7 @@ def main():
         acc, gyro = bridge._extract_imu() # extracts raw data
         pos, quat = bridge._extract_base_pose()
         contacts = bridge._extract_contacts()
+        joint_states = bridge._extract_joint_states()
 
         # corrupt our readings
         if noise_gen:
