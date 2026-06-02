@@ -12,6 +12,9 @@ import numpy as np
 import yaml
 from tqdm import tqdm
 
+import time
+import mujoco.viewer
+
 # ensure repo root is on path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -73,7 +76,7 @@ def main():
     registry.register(imu_factor)
 
     # registering forward kinematic factor for 4 legs
-    for i in range(3):
+    for i in range(4):
         registry.register(ForwardKinematicFactor(i, 0.00873, cfg['simulation']['model_path']))
 
     # inisialise main solver object
@@ -109,31 +112,49 @@ def main():
     # trigger the prior factors
     estimator.initialise(sensor_data)
 
-    # remaining steps
-    for step in tqdm(range(1, n_steps), desc='Simulating'):
-        # iterate through the simulation duration
-        bridge.step()   # advances time
-        acc, gyro = bridge._extract_imu() # extracts raw data
-        pos, quat = bridge._extract_base_pose()
-        contacts = bridge._extract_contacts()
-        joint_states = bridge._extract_joint_states()
+    mj_model = bridge.model
+    mj_data = bridge.data
 
-        # corrupt our readings
-        if noise_gen:
-            acc, gyro = noise_gen.corrupt(acc, gyro, dt)
+    with mujoco.viewer.launch_passive(mj_model, mj_data) as viewer:
 
-        sensor_data = {
-            'imu_acc': acc,
-            'imu_gyro': gyro,
-            'base_pos': pos,
-            'base_quat': quat,
-            'foot_contacts': contacts,
-            'joint_states': joint_states,
-            'dt': dt,
-        }
-        # pass noisy measurements to imu preintegrator
-        estimator.step(sensor_data)
-        # estimator internally decides when to run isam2
+        # remaining steps
+        for step in tqdm(range(1, n_steps), desc='Simulating'):
+            step_start = time.time()
+
+            # iterate through the simulation duration
+            bridge.step()   # advances time
+
+            viewer.sync()
+            acc, gyro = bridge._extract_imu() # extracts raw data
+            pos, quat = bridge._extract_base_pose()
+            contacts = bridge._extract_contacts()
+            joint_states = bridge._extract_joint_states()
+
+            # corrupt our readings
+            if noise_gen:
+                acc, gyro = noise_gen.corrupt(acc, gyro, dt)
+
+            sensor_data = {
+                'imu_acc': acc,
+                'imu_gyro': gyro,
+                'base_pos': pos,
+                'base_quat': quat,
+                'foot_contacts': contacts,
+                'joint_states': joint_states,
+                'dt': dt,
+            }
+            # pass noisy measurements to imu preintegrator
+            estimator.step(sensor_data)
+            # estimator internally decides when to run isam2
+
+            #slow down the simulation to real time
+            time_until_next_step = dt - (time.time() - step_start)
+            if time_until_next_step > 0:
+                time.sleep(time_until_next_step)
+                
+            if not viewer.is_running():
+                print("Window closed - sumulation terminated")
+                break
 
     # results and visualisation
     log = estimator.get_log()
@@ -158,7 +179,7 @@ def main():
             ax.legend()
             ax.grid(True)
         axes[-1].set_xlabel('Time [s]')
-        fig.suptitle('A2 State Estimation — IMU-only (iSAM2)')
+        fig.suptitle('A2 State Estimation — IMU+FK (iSAM2)')
         plt.tight_layout()
         plt.show()
 
