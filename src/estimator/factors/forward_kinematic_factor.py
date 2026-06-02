@@ -39,6 +39,9 @@ class ForwardKinematicFactor(BaseFactor):
         contact frame(Ci, di) position and orientation init
         """
 
+        if sensor_data['foot_contacts'][self.leg_id] == 0:
+            return
+        
         # base and leg contact keys  
         base_key = gtsam.symbol('x', step_idx)
         contact_key = gtsam.symbol('c', self.leg_id * 1000 + step_idx)
@@ -72,6 +75,10 @@ class ForwardKinematicFactor(BaseFactor):
         adds gtsam.CustomFactor to the graph calculating residues f_Ri and f_pi 
         """
 
+        # if leg is not on the ground calculating fc would only make the estimation worse
+        if sensor_data['foot_contacts'][self.leg_id] == 0:
+            return
+
         # base and leg contact keys  
         base_key = gtsam.symbol('x', step_idx)
         contact_key = gtsam.symbol('c', self.leg_id * 1000 + step_idx)
@@ -79,7 +86,7 @@ class ForwardKinematicFactor(BaseFactor):
         if not values.exists(base_key) or not values.exists(contact_key):
             return
             
-        print(f"DEBUG: Dostępne klucze w sensor_data: {sensor_data.keys()}")
+        print(f"DEBUG: keys available in  sensor_data: {sensor_data.keys()}")
         leg_encoder_data = sensor_data['joint_states'][self.leg_id]
 
         fk_R = self._f_R(leg_encoder_data)
