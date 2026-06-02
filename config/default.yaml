@@ -2,7 +2,7 @@
 
 simulation:
   model_path: "a2.xml"           # resolved by SimBridge (third_party/assets fallback)
-  duration: 3.0                  # total simulation time [s]
+  duration: 10.0                  # total simulation time [s]
   timestep: 0.002                # MuJoCo physics timestep [s]
 
 imu:

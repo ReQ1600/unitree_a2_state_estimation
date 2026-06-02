@@ -133,3 +133,31 @@ class SimBridge:
                             contacts[idx] = 1.0
                             break
         return contacts
+
+    def _extract_joint_states(self) -> np.ndarray:
+        leg_joint_map = {
+            0: ["FL_hip_joint", "FL_thigh_joint", "FL_calf_joint"],
+            1: ["FR_hip_joint", "FR_thigh_joint", "FR_calf_joint"],
+            2: ["RL_hip_joint", "RL_thigh_joint", "RL_calf_joint"],
+            3: ["RR_hip_joint", "RR_thigh_joint", "RR_calf_joint"]
+        }
+
+        joint_states = np.zeros((4, 3), dtype=np.float64)
+
+        for leg_id, joint_names in leg_joint_map.items():
+            for j, joint_name in enumerate(joint_names):
+
+                jid = mujoco.mj_name2id(
+                    self.model,
+                    mujoco.mjtObj.mjOBJ_JOINT,
+                    joint_name
+                )
+
+                if jid == -1:
+                    raise RuntimeError(f"Joint not found: {joint_name}")
+
+                qadr = self.model.jnt_qposadr[jid]
+
+                joint_states[leg_id, j] = self.data.qpos[qadr]
+
+        return joint_states
