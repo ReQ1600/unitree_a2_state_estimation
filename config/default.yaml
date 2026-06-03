@@ -1,8 +1,8 @@
 # default configuration for the Unitree A2 factor-graph state estimator.
 
 simulation:
-  model_path: "a2.xml"           # resolved by SimBridge (third_party/assets fallback)
-  duration: 10.0                  # total simulation time [s]
+  model_path: "assets/a2.xml"     # Unitree A2 MuJoCo model with position actuators
+  duration: 20.0                  # total simulation time [s]
   timestep: 0.002                # MuJoCo physics timestep [s]
 
 imu:
@@ -26,6 +26,23 @@ noise:
   accel_bias_density: 0.001
   gyro_bias_density: 0.0001
 
+gait:
+  frequency: 0.4                 # slow creep: 2.5s per full cycle
+  swing_ratio: 0.25              # fraction of cycle for a leg swing phase
+  settle_duration: 2.0           # [s] settle time before walking
+  weight_shift_fraction: 0.15    # fraction of swing phase used for weight shift
+  hip_shift: 0.03                # hip angle bias for lateral weight shift [rad]
+  phase_offset: [0, 3.14159, 0, 3.14159]  # [FR, FL, RR, RL] (unused in creep)
+  nominal:
+    hip: 0.0                     # neutral abduction [rad]
+    thigh: 0.8                   # thigh joint angle [rad]
+    calf: -1.6                   # calf joint angle [rad]
+  amplitude:
+    hip: 0.0                     # hip swing amplitude [rad] (unused, hip used for shift)
+    thigh: 0.15                  # thigh swing amplitude [rad]
+    calf: 0.50                   # calf swing amplitude [rad] for ground clearance
+
 output:
   plot: true                     # show matplotlib plot after run
   log_csv: false                 # save estimates to CSV
+  live_plot: false               # real-time matplotlib joint-angle plot

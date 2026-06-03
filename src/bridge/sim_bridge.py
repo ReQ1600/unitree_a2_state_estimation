@@ -13,7 +13,8 @@ import numpy as np
 
 
 class SimBridge:
-    def __init__(self, xml_path: str, dt: float = 0.002) -> None:
+    def __init__(self, xml_path: str, dt: float = 0.002,
+                 init_joint_angles: "np.ndarray | None" = None) -> None:
         # resolve path: allow short paths like "models/a2.xml" by
         # trying several likely locations whatever
         if not os.path.exists(xml_path):
@@ -41,10 +42,28 @@ class SimBridge:
         # reset data cuz else first imu trash
         mujoco.mj_resetData(self.model, self.data)
 
-    def step(self) -> None:
-        """Advance simulation by one timestamp."""
-        # integrate equations of motion forward
-        # no return cuz state ilves inside self.data
+        # set initial joint angles if provided (after reset so base pose is preserved)
+        # Position actuators in MuJoCo may not map 1:1 via actuator_trnid;
+        # we write directly to qpos[7:] which holds the 12 joint positions
+        # (the first 7 entries are the floating-base pose).
+        if init_joint_angles is not None:
+            n_act = min(len(init_joint_angles), self.model.nu)
+            # joint qpos starts after the 7-DOF floating base
+            jnt_start = 7
+            for j in range(n_act):
+                if jnt_start + j < self.model.nq:
+                    self.data.qpos[jnt_start + j] = float(init_joint_angles[j])
+
+    def step(self, ctrl: "np.ndarray | None" = None) -> None:
+        """Advance simulation by one timestep.
+
+        Args:
+            ctrl: Optional (nu,) array of actuator commands. Applied before
+                  the physics step. For position actuators this is desired
+                  joint angles [rad]; for torque motors it's torque [Nm].
+        """
+        if ctrl is not None:
+            self.data.ctrl[:] = ctrl
         mujoco.mj_step(self.model, self.data)
 
     def _extract_imu(self) -> Tuple[np.ndarray, np.ndarray]:

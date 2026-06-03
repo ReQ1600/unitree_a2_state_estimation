@@ -138,7 +138,10 @@ class ImuPreintegrator:
           gyro_bias_rw          [rad/s² / sqrt(Hz)] (bias random walk)
         """
         # noise config yeah
-        params = PreintegrationCombinedParams.MakeSharedU(gravity)
+        # GTSAM MakeSharedU uses Z-up convention: gravity vector is (0, 0, g).
+        # MuJoCo world gravity is (0, 0, -9.81), so we pass -gravity so GTSAM
+        # correctly models gravity pointing downward in the navigation frame.
+        params = PreintegrationCombinedParams.MakeSharedU(-gravity)
         I3 = np.eye(3)
         params.setAccelerometerCovariance(I3 * (accel_noise_density ** 2))
         params.setGyroscopeCovariance(I3 * (gyro_noise_density ** 2))

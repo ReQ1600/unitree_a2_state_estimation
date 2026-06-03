@@ -19,6 +19,7 @@ import mujoco.viewer
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.bridge.sim_bridge import SimBridge
+from src.bridge.gait_generator import GaitGenerator
 from src.bridge.sensor_noise import ImuNoiseGenerator, ImuNoiseParams
 from src.estimator.imu_preintegrator import ImuPreintegrator
 from src.estimator.factor_registry import FactorRegistry
@@ -40,9 +41,22 @@ def main():
 
     cfg = load_config(args.config)
 
-    # set up the physics bridge
+    # compute nominal stance angles for initialisation
+    nom = cfg['gait']['nominal']
+    init_joints = np.zeros(12, dtype=float)
+    for leg in range(4):
+        base = leg * 3
+        init_joints[base + 0] = float(nom['hip'])
+        init_joints[base + 1] = float(nom['thigh'])
+        init_joints[base + 2] = float(nom['calf'])
+
+    # set up the physics bridge with robot starting in stance pose
     bridge = SimBridge(cfg['simulation']['model_path'],
-                       dt=cfg['simulation']['timestep'])
+                       dt=cfg['simulation']['timestep'],
+                       init_joint_angles=init_joints)
+
+    # set up the gait generator (trot pattern)
+    gait_gen = GaitGenerator(cfg['gait'])
 
     # optionally noise
     noise_gen = None
@@ -87,8 +101,9 @@ def main():
     dt = bridge._dt
     n_steps = int(duration / dt)
 
-    # the first frame
-    bridge.step()
+    # the first frame — apply initial stance before stepping
+    init_targets = gait_gen.step(dt)
+    bridge.step(ctrl=init_targets)
     acc, gyro = bridge._extract_imu()
     pos, quat = bridge._extract_base_pose()
     contacts = bridge._extract_contacts()
@@ -117,18 +132,51 @@ def main():
 
     with mujoco.viewer.launch_passive(mj_model, mj_data) as viewer:
 
+        # pre-allocate foot-site IDs for contact visualization
+        foot_site_names = ["FL", "FR", "RL", "RR"]
+        foot_site_ids = [
+            mujoco.mj_name2id(mj_model, mujoco.mjtObj.mjOBJ_SITE, name)
+            for name in foot_site_names
+        ]
+
         # remaining steps
         for step in tqdm(range(1, n_steps), desc='Simulating'):
             step_start = time.time()
 
-            # iterate through the simulation duration
-            bridge.step()   # advances time
+            # apply sinusoidal gait targets before physics step
+            targets = gait_gen.step(dt)
+            bridge.step(ctrl=targets)
 
-            viewer.sync()
-            acc, gyro = bridge._extract_imu() # extracts raw data
+            # extract all sensor data
+            acc, gyro = bridge._extract_imu()
             pos, quat = bridge._extract_base_pose()
             contacts = bridge._extract_contacts()
             joint_states = bridge._extract_joint_states()
+
+            viewer.sync()
+
+            # ── foot-contact visualisation ──────────────────────────────
+            # colored spheres at foot sites: green = in contact, red = in air
+            viewer.user_scn.ngeom = 0  # clear previous markers
+            for leg_idx, site_id in enumerate(foot_site_ids):
+                if site_id < 0:
+                    continue
+                foot_pos = mj_data.site_xpos[site_id].copy()
+                in_contact = contacts[leg_idx] > 0.5
+                mujoco.mjv_initGeom(
+                    viewer.user_scn.geoms[leg_idx],
+                    type=mujoco.mjtGeom.mjGEOM_SPHERE,
+                    size=np.array([0.025, 0.0, 0.0]),
+                    pos=foot_pos,
+                    mat=np.eye(3).ravel(),
+                    rgba=np.array(
+                        [0.0, 1.0, 0.0, 0.8] if in_contact
+                        else [1.0, 0.2, 0.2, 0.8]
+                    ),
+                )
+                viewer.user_scn.geoms[leg_idx].category = mujoco.mjtCatBit.mjCAT_DECOR
+            viewer.user_scn.ngeom = 4
+            # ────────────────────────────────────────────────────────────
 
             # corrupt our readings
             if noise_gen:
