@@ -142,13 +142,13 @@ class GaitGenerator:
         # swing start phase for each leg: FR=np.pi, FL=0.0, RR=np.pi/2, RL=3*np.pi/2
         swing_starts = [np.pi, 0.0, np.pi/2, 3*np.pi/2]
 
-        # Determine current quarter and smooth transition value
+        # determine current quarter and smooth transition value
         q = int(phase / (np.pi / 2.0)) % 4
         q_prev = (q - 1) % 4
         theta = phase % (np.pi / 2.0)
         trans_duration = self._weight_shift_fraction * (np.pi / 2.0)
 
-        # Target shifts for the 4 quarters corresponding to swing leg sides:
+        # target shifts for the 4 quarters corresponding to swing leg sides:
         # Q0 (FL swings - left side) -> Right shift (+hip_shift)
         # Q1 (RR swings - right side) -> Left shift (-hip_shift)
         # Q2 (FR swings - right side) -> Left shift (-hip_shift)
@@ -167,20 +167,20 @@ class GaitGenerator:
             tau = rel_phase / (2.0 * np.pi)
 
             if tau < self._swing_ratio:
-                # ── SWING leg ──
+                # swing leg
                 swing_progress = tau / self._swing_ratio
                 if swing_progress < self._weight_shift_fraction:
-                    # Keep foot on the ground during initial weight-shift sub-phase
+                    # keep foot on the ground during initial weight-shift sub-phase
                     thigh_target = self._nom_thigh
                     calf_target = self._nom_calf
                 else:
-                    # Lift and sweep foot forward
+                    # lift and sweep foot forward
                     s = (swing_progress - self._weight_shift_fraction) / (1.0 - self._weight_shift_fraction)
                     thigh_target = self._nom_thigh + self._amp_thigh * np.cos(np.pi * s)
                     calf_target = self._nom_calf - self._amp_calf * np.sin(np.pi * s)
                 hip_target = 0.0
             else:
-                # ── STANCE leg ──
+                # stance leg
                 st_prog = (tau - self._swing_ratio) / (1.0 - self._swing_ratio)
                 thigh_target = self._nom_thigh - self._amp_thigh * np.cos(np.pi * st_prog)
                 calf_target = self._nom_calf
