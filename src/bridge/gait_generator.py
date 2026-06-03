@@ -141,18 +141,26 @@ class GaitGenerator:
 
         # swing start phase for each leg: FR=np.pi, FL=0.0, RR=np.pi/2, RL=3*np.pi/2
         swing_starts = [np.pi, 0.0, np.pi/2, 3*np.pi/2]
-        leg_side = ['right', 'left', 'right', 'left']  # FR=0, FL=1, RR=2, RL=3
 
-        # First find which leg is in swing phase and its progress
-        swing_leg = None
-        swing_progress = 0.0
-        for leg in range(4):
-            rel_phase = (phase - swing_starts[leg]) % (2.0 * np.pi)
-            tau = rel_phase / (2.0 * np.pi)
-            if tau < self._swing_ratio:
-                swing_leg = leg
-                swing_progress = tau / self._swing_ratio
-                break
+        # Determine current quarter and smooth transition value
+        q = int(phase / (np.pi / 2.0)) % 4
+        q_prev = (q - 1) % 4
+        theta = phase % (np.pi / 2.0)
+        trans_duration = self._weight_shift_fraction * (np.pi / 2.0)
+
+        # Target shifts for the 4 quarters corresponding to swing leg sides:
+        # Q0 (FL swings - left side) -> Right shift (+hip_shift)
+        # Q1 (RR swings - right side) -> Left shift (-hip_shift)
+        # Q2 (FR swings - right side) -> Left shift (-hip_shift)
+        # Q3 (RL swings - left side) -> Right shift (+hip_shift)
+        target_shifts = [self._hip_shift, -self._hip_shift, -self._hip_shift, self._hip_shift]
+
+        if theta < trans_duration:
+            r = theta / trans_duration
+            s_val = 0.5 * (1.0 - np.cos(np.pi * r))
+            curr_shift = target_shifts[q_prev] + (target_shifts[q] - target_shifts[q_prev]) * s_val
+        else:
+            curr_shift = target_shifts[q]
 
         for leg in range(4):
             rel_phase = (phase - swing_starts[leg]) % (2.0 * np.pi)
@@ -160,6 +168,7 @@ class GaitGenerator:
 
             if tau < self._swing_ratio:
                 # ── SWING leg ──
+                swing_progress = tau / self._swing_ratio
                 if swing_progress < self._weight_shift_fraction:
                     # Keep foot on the ground during initial weight-shift sub-phase
                     thigh_target = self._nom_thigh
@@ -175,19 +184,7 @@ class GaitGenerator:
                 st_prog = (tau - self._swing_ratio) / (1.0 - self._swing_ratio)
                 thigh_target = self._nom_thigh - self._amp_thigh * np.cos(np.pi * st_prog)
                 calf_target = self._nom_calf
-
-                # Apply hip abduction/adduction bias to shift body weight laterally
-                hip_target = 0.0
-                if swing_leg is not None and swing_progress < self._weight_shift_fraction:
-                    sp = min(1.0, swing_progress / (self._weight_shift_fraction * 0.8))
-                    ss = leg_side[swing_leg]
-                    ms = leg_side[leg]
-                    if ss == 'left':
-                        # Shift body to the right (away from left swing leg)
-                        hip_target = -self._hip_shift * sp if ms == 'right' else self._hip_shift * sp
-                    else:
-                        # Shift body to the left (away from right swing leg)
-                        hip_target = self._hip_shift * sp if ms == 'left' else -self._hip_shift * sp
+                hip_target = curr_shift
 
             # clip to joint limits
             hip_target = np.clip(hip_target, *self._limits[leg, 0])

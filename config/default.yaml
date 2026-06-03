@@ -30,7 +30,7 @@ gait:
   frequency: 0.4                 # slow creep: 2.5s per full cycle
   swing_ratio: 0.25              # fraction of cycle for a leg swing phase
   settle_duration: 2.0           # [s] settle time before walking
-  weight_shift_fraction: 0.15    # fraction of swing phase used for weight shift
+  weight_shift_fraction: 0.40    # fraction of swing phase used for weight shift
   hip_shift: 0.03                # hip angle bias for lateral weight shift [rad]
   phase_offset: [0, 3.14159, 0, 3.14159]  # [FR, FL, RR, RL] (unused in creep)
   nominal:
@@ -39,8 +39,8 @@ gait:
     calf: -1.6                   # calf joint angle [rad]
   amplitude:
     hip: 0.0                     # hip swing amplitude [rad] (unused, hip used for shift)
-    thigh: 0.15                  # thigh swing amplitude [rad]
-    calf: 0.50                   # calf swing amplitude [rad] for ground clearance
+    thigh: 0.10                  # thigh swing amplitude [rad]
+    calf: 0.30                   # calf swing amplitude [rad] for ground clearance
 
 output:
   plot: true                     # show matplotlib plot after run
