@@ -17,9 +17,19 @@ def make_values(
         gtsam.Point3(0.0, 0.0, 0.0),
     )
 
+    contact_pose_i = gtsam.Pose3(
+        gtsam.Rot3.Identity(),
+        gtsam.Point3(*d_i),
+    )
+
+    contact_pose_j = gtsam.Pose3(
+        gtsam.Rot3.Identity(),
+        gtsam.Point3(*d_j),
+    )
+
     values.insert(PoseKey(0), pose_i)
-    values.insert(ContactKey(0, 0), gtsam.Point3(*d_i))
-    values.insert(ContactKey(0, 1), gtsam.Point3(*d_j))
+    values.insert(ContactKey(0, 0), contact_pose_i)
+    values.insert(ContactKey(0, 1), contact_pose_j)
 
     return values
 
@@ -197,12 +207,19 @@ def test_contact_factor_optimizes_contact_point():
         gtsam.Point3(0.0, 0.0, 0.0),
     )
 
-    d_i = gtsam.Point3(0.0, 0.0, 0.0)
-    d_j_initial = gtsam.Point3(1.0, 0.0, 0.0)
+    contact_pose_i = gtsam.Pose3(
+        gtsam.Rot3.Identity(),
+        gtsam.Point3(0.0, 0.0, 0.0),
+    )
+
+    contact_pose_j_initial = gtsam.Pose3(
+        gtsam.Rot3.Identity(),
+        gtsam.Point3(1.0, 0.0, 0.0),
+    )
 
     values.insert(pose_key, pose_i)
-    values.insert(contact_i_key, d_i)
-    values.insert(contact_j_key, d_j_initial)
+    values.insert(contact_i_key, contact_pose_i)
+    values.insert(contact_j_key, contact_pose_j_initial)
 
     graph.add(
         gtsam.PriorFactorPose3(
@@ -213,10 +230,10 @@ def test_contact_factor_optimizes_contact_point():
     )
 
     graph.add(
-        gtsam.PriorFactorPoint3(
+        gtsam.PriorFactorPose3(
             contact_i_key,
-            d_i,
-            gtsam.noiseModel.Isotropic.Sigma(3, 1e-6),
+            contact_pose_i,
+            gtsam.noiseModel.Isotropic.Sigma(6, 1e-6),
         )
     )
 
@@ -232,7 +249,8 @@ def test_contact_factor_optimizes_contact_point():
     optimizer = gtsam.LevenbergMarquardtOptimizer(graph, values)
     result = optimizer.optimize()
 
-    d_j_result = result.atPoint3(contact_j_key)
+    contact_j_result = result.atPose3(contact_j_key)
+    d_j_result = contact_j_result.translation()
     d_j_np = np.array([d_j_result[0], d_j_result[1], d_j_result[2]])
 
     np.testing.assert_allclose(

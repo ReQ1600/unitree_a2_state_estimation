@@ -164,6 +164,13 @@ class Estimator:
         # provide current isam estimate so factors can predict next state
         context['current_estimate'] = self._isam.calculateEstimate()
 
+        self._registry.add_all_initial_estimates(
+            values,
+            self._keyframe_idx,
+            sensor_data,
+            context,
+        )
+
         # all registered factors add their factors + initial estimates
         self._registry.add_all_to_graph(graph, values,
                                         self._keyframe_idx, sensor_data, context)

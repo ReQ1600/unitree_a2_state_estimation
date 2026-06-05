@@ -65,7 +65,7 @@ class ForwardKinematicFactor(BaseFactor):
 
                 # C = R * f_R
                 # d = p + R * f_p
-                contact_rot = base_pose.rotation().compose(gtsam.Rot3(R_bc))
+                contact_rot = base_pose.rotation().compose(R_bc)
                 contact_pos = base_pose.translation() + base_pose.rotation().rotate(p_bc)
 
                 vals.insert(contact_key, gtsam.Pose3(contact_rot, contact_pos))
@@ -74,7 +74,7 @@ class ForwardKinematicFactor(BaseFactor):
         """
         adds gtsam.CustomFactor to the graph calculating residues f_Ri and f_pi 
         """
-
+        print("FK add_to_graph", self.leg_id, step_idx, sensor_data["foot_contacts"][self.leg_id])
         # if leg is not on the ground calculating fc would only make the estimation worse
         if sensor_data['foot_contacts'][self.leg_id] == 0:
             return
@@ -108,7 +108,9 @@ class ForwardKinematicFactor(BaseFactor):
             d_i = contact_pose.translation()
 
             # rotation residual calculation Log(f_R^T * R^T * C) (21)
-            r_R = gtsam.Rot3(fk_R).inverse().compose(R_i.inverse().compose(C_i)).logmap()
+            r_R = gtsam.Rot3.Logmap(
+                fk_R.inverse().compose(R_i.inverse().compose(C_i))
+            )
 
             #position residual calculation R^T * (d - p) - f_p (21)
             r_p = R_i.unrotate(d_i - p_i) - fk_p
@@ -118,7 +120,7 @@ class ForwardKinematicFactor(BaseFactor):
             H0 = np.zeros((6, 6))
 
             #rotation with respect to the base rotation
-            H0[0:3, 0:3] = -gtsam.Rot3.InverseRightJacobian(r_R) @ C_i.transpose().compose(R_i).matrix()
+            H0[0:3, 0:3] = -inverse_right_jacobian_so3(r_R) @ (C_i.inverse().compose(R_i)).matrix()
             
             # position with respect tot the base rotation
             H0[3:6, 0:3] = skew(R_i.unrotate(d_i - p_i))
@@ -127,13 +129,13 @@ class ForwardKinematicFactor(BaseFactor):
             H1 = np.zeros((6, 6))
 
             #rotation with respect to the contact rotation
-            H1[0:3, 0:3] = gtsam.Rot3.InverseRightJacobian(r_R)
+            H1[0:3, 0:3] = inverse_right_jacobian_so3(r_R)
 
             #position with respect to the contact translaction
-            H1[3:6, 3:6] = R_i.transpose().compose(C_i).matrix()
+            H1[3:6, 3:6] = R_i.inverse().compose(C_i).matrix()
 
             if H is not None:
-                H = H0
+                H[0] = H0
                 H[1] = H1
                 
             return np.hstack((r_R, r_p))
@@ -178,6 +180,10 @@ class ForwardKinematicFactor(BaseFactor):
 
         prior_noise = gtsam.noiseModel.Isotropic.Sigma(6, 0.1)
         graph.add(gtsam.PriorFactorPose3(contact_key, contact_pose, prior_noise))
+
+    def contact_rotation(self, alpha: np.ndarray) -> np.ndarray:
+        """Return fR(alpha): contact-frame orientation relative to base frame."""
+        return self._f_R(alpha).matrix()
 
     def _f_R(self, alpha):
         """
@@ -428,3 +434,26 @@ def skew(v):
         [v[2], 0, -v[0]],
         [-v[1], v[0], 0]
     ])
+
+def inverse_right_jacobian_so3(phi):
+    """Inverse right Jacobian for SO(3).
+
+    For small phi, use first-order approximation.
+    """
+    phi = np.asarray(phi, dtype=float).reshape(3)
+    theta = np.linalg.norm(phi)
+    phi_hat = skew(phi)
+
+    if theta < 1e-8:
+        return np.eye(3) - 0.5 * phi_hat
+
+    half_theta = 0.5 * theta
+    cot_half_theta = 1.0 / np.tan(half_theta)
+
+    return (
+        np.eye(3)
+        - 0.5 * phi_hat
+        + (1.0 - theta * cot_half_theta / 2.0)
+        / (theta ** 2)
+        * (phi_hat @ phi_hat)
+    )

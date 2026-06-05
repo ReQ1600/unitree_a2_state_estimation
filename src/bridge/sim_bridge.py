@@ -32,6 +32,10 @@ class SimBridge:
         self.data = mujoco.MjData(self.model)
         # store dt for downstream users
         self._dt = float(dt)
+        print("Loaded XML:", xml_path)
+        print("Number of actuators:", self.model.nu)
+        print("Control shape:", self.data.ctrl.shape)
+        
 
         # if model.opt.timestep exists, keep it; otherwise leave model default
         try:

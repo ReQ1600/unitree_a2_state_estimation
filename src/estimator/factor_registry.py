@@ -63,6 +63,15 @@ class BaseFactor(ABC):
         # ts prevents keyerror, avoids passing unused data, lets the beidge/simulator validaate inputs at start
         # example: fk returns ["joint_pos"], contac treturns ["foot_contact", "imu_acc"]
 
+    def add_initial_estimate(
+        self,
+        values,
+        step_idx,
+        sensor_data,
+        context,
+    ):
+        pass
+
 class FactorRegistry:
     """Ordered collection of factors, dispatched at each keyframe."""
 
@@ -112,3 +121,19 @@ class FactorRegistry:
     # validates that bdidge actually produces the keys
     # skips copying irrelevant arrays
     # will fail fast, if u forgot to implement a sensor hook
+
+    def add_all_initial_estimates(
+        self,
+        values,
+        step_idx,
+        sensor_data,
+        context,
+    ):
+        for factor in self._factors:
+            if hasattr(factor, "add_initial_estimate"):
+                factor.add_initial_estimate(
+                    values,
+                    step_idx,
+                    sensor_data,
+                    context,
+                )

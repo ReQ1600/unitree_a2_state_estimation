@@ -94,8 +94,13 @@ def main():
     registry.register(imu_factor)
 
     # registering forward kinematic factor for 4 legs
-    for i in range(4):
-        registry.register(ForwardKinematicFactor(i, 0.00873, cfg['simulation']['model_path']))
+    fk_factors = [
+        ForwardKinematicFactor(i, 0.00873, cfg['simulation']['model_path'])
+        for i in range(4)
+    ]
+
+    for fk_factor in fk_factors:
+        registry.register(fk_factor)
 
     # inisialise main solver object
     contact_cfg = cfg["contact_factor"]
@@ -119,7 +124,10 @@ def main():
     pos, quat = bridge._extract_base_pose()
     contacts = bridge._extract_contacts()
     joint_states = bridge._extract_joint_states()
-    fk_contact_rotation = bridge._extract_fk_contact_rotation()
+    fk_contact_rotation = np.stack([
+        fk_factors[i].contact_rotation(joint_states[i])
+        for i in range(4)
+    ])
 
     sensor_data = {
         'imu_acc': acc, #    corrupted by noise
@@ -165,7 +173,10 @@ def main():
             pos, quat = bridge._extract_base_pose()
             contacts = bridge._extract_contacts()
             joint_states = bridge._extract_joint_states()
-            fk_contact_rotation = bridge._extract_fk_contact_rotation()
+            fk_contact_rotation = np.stack([
+                fk_factors[i].contact_rotation(joint_states[i])
+                for i in range(4)
+            ])
 
             viewer.sync()
 

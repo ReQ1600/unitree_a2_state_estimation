@@ -4,6 +4,7 @@ Key numbering scheme (avoids collisions between different variable types):
   PoseKey(i)   = i         (gtsam.Pose3 / gtsam.NavState)
   VelKey(i)    = 10000 + i (gtsam.Vector, 3D velocity)
   BiasKey(i)   = 20000 + i (gtsam.imuBias.ConstantBias)
+  ContactKey(foot, i) = gtsam.symbol('c', foot * 1000 + i)
 
 Utility functions:
   make_navstate(pos, quat_xyzw, vel)  -> gtsam.NavState
@@ -40,24 +41,20 @@ def BiasKey(i: int) -> int:
 
 
 def FootKey(foot_idx: int, step_idx: int) -> int:
-    """Deterministic key for a contact point of a specific foot at a timestep.
-    
-    Args:
-        foot_idx:  Foot index (0=FL, 1=FR, 2=RL, 3=RR).
-        step_idx:  Timestep / keyframe index.
-    
-    Returns:
-        Unique key for the foot contact point.
-    
-    Key numbering: 30000 + foot_idx * 10000 + step_idx
-    This avoids collisions with PoseKey (0-9999), VelKey (10000-19999), BiasKey (20000-29999).
+    """Deterministic key for a contact frame of a specific foot at a keyframe.
+
+    This matches ForwardKinematicFactor, which uses:
+        gtsam.symbol('c', foot_idx * 1000 + step_idx)
+
+    The contact variable is a Pose3:
+        C_i = contact frame orientation
+        d_i = contact frame position
     """
-    return 30000 + foot_idx * 10000 + step_idx
+    return gtsam.symbol("c", foot_idx * 1000 + step_idx)
 
 
-# Alias for clarity in contact-specific code
 def ContactKey(foot_idx: int, step_idx: int) -> int:
-    """Alias for FootKey. Represents contact point of a foot at a keyframe."""
+    """Alias for FootKey. Represents contact frame Pose3 at a keyframe."""
     return FootKey(foot_idx, step_idx)
 
 

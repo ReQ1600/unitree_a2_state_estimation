@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 import gtsam
-from gtsam import Point3, noiseModel
+from gtsam import noiseModel
 
 from ..factor_registry import BaseFactor
 from ..gtsam_types import PoseKey, ContactKey
@@ -68,27 +68,8 @@ class ContactFactor(BaseFactor):
         sensor_data: Dict[str, Any],
         context: Dict[str, Any],
     ) -> None:
-        """Add priors and initial values for contact point states at keyframe 0.
-
-        The initial contact point values should ultimately come from FK/bridge
-        initialization. A zero placeholder may be used only until FK is ready.
-        """
-        initial_contact_points = self._require_initial_contact_points(context)
-
-        for foot_idx in range(4):
-            key = ContactKey(foot_idx, 0)
-            point = self._to_point3(initial_contact_points[foot_idx])
-
-            graph.add(
-                gtsam.PriorFactorPoint3(
-                    key,
-                    point,
-                    self._prior_contact_noise,
-                )
-            )
-
-            if not values.exists(key):
-                values.insert(key, point)
+        """Contact Pose3 priors are handled by ForwardKinematicFactor."""
+        return
 
     def add_to_graph(
         self,
@@ -114,14 +95,15 @@ class ContactFactor(BaseFactor):
             contact_key_i = ContactKey(foot_idx, step_idx - 1)
             contact_key_j = ContactKey(foot_idx, step_idx)
 
-            self._insert_initial_estimate(
+            if not self._insert_initial_estimate(
                 values=values,
                 contact_key_i=contact_key_i,
                 contact_key_j=contact_key_j,
                 foot_idx=foot_idx,
                 step_idx=step_idx,
                 current_estimate=current_estimate,
-            )
+            ):
+                continue
 
             covariance_ij = np.asarray(
                 contact_pim.covariance_for_foot(foot_idx),
@@ -129,6 +111,7 @@ class ContactFactor(BaseFactor):
             ).reshape(3, 3)
 
             contact_noise = noiseModel.Gaussian.Covariance(covariance_ij)
+            print("Contact factor added", foot_idx, step_idx)
 
             graph.add(
                 self._make_point_contact_factor(
@@ -151,20 +134,17 @@ class ContactFactor(BaseFactor):
         foot_idx: int,
         step_idx: int,
         current_estimate: Optional[gtsam.Values],
-    ) -> None:
+    ) -> bool:
         """Insert initial estimate for ContactKey(foot, step_idx)."""
         if values.exists(contact_key_j):
-            return
+            return True
 
         if current_estimate is not None and current_estimate.exists(contact_key_i):
-            previous_point = current_estimate.atPoint3(contact_key_i)
-            values.insert(contact_key_j, previous_point)
-            return
+            previous_pose = current_estimate.atPose3(contact_key_i)
+            values.insert(contact_key_j, previous_pose)
+            return True
 
-        raise ValueError(
-            f"Cannot initialize ContactKey({foot_idx}, {step_idx}). "
-            "Expected previous contact point in context['current_estimate']."
-        )
+        return False
 
     @staticmethod
     def _make_point_contact_factor(
@@ -190,10 +170,14 @@ class ContactFactor(BaseFactor):
 
         def residual_from_values(values: gtsam.Values) -> np.ndarray:
             pose_i = values.atPose3(pose_key_i)
-            d_i = values.atPoint3(contact_key_i)
-            d_j = values.atPoint3(contact_key_j)
+            contact_pose_i = values.atPose3(contact_key_i)
+            contact_pose_j = values.atPose3(contact_key_j)
 
             r_i = pose_i.rotation().matrix()
+
+            d_i = contact_pose_i.translation()
+            d_j = contact_pose_j.translation()
+
             d_i_np = np.array([d_i[0], d_i[1], d_i[2]], dtype=float)
             d_j_np = np.array([d_j[0], d_j[1], d_j[2]], dtype=float)
 
@@ -213,8 +197,17 @@ class ContactFactor(BaseFactor):
                     pose_key=pose_key_i,
                     residual_func=residual_from_values,
                 )
-                jacobians[1] = -values.atPose3(pose_key_i).rotation().matrix().T
-                jacobians[2] = values.atPose3(pose_key_i).rotation().matrix().T
+
+                r_i_T = values.atPose3(pose_key_i).rotation().matrix().T
+
+                # Contact variables are Pose3(C_i, d_i), but Eq. (39)
+                # depends only on d_i and d_j. Therefore rotation columns are zero,
+                # translation columns are -R_i^T and +R_i^T.
+                jacobians[1] = np.zeros((3, 6), dtype=float)
+                jacobians[2] = np.zeros((3, 6), dtype=float)
+
+                jacobians[1][:, 3:6] = -r_i_T
+                jacobians[2][:, 3:6] = r_i_T
 
             return residual
 
@@ -271,24 +264,3 @@ class ContactFactor(BaseFactor):
             )
 
         return contact_pim
-
-    @staticmethod
-    def _require_initial_contact_points(context: Dict[str, Any]) -> np.ndarray:
-        """Fetch initial world-frame contact point estimates from context."""
-        if "initial_contact_points" not in context:
-            raise ValueError(
-                "ContactFactor requires context['initial_contact_points'] "
-                "to initialize ContactKey(foot, 0)."
-            )
-
-        return np.asarray(
-            context["initial_contact_points"],
-            dtype=float,
-        ).reshape(4, 3)
-
-    @staticmethod
-    def _to_point3(point: np.ndarray) -> Point3:
-        """Convert array-like 3D point to GTSAM Point3."""
-        p = np.asarray(point, dtype=float).reshape(3)
-        return Point3(float(p[0]), float(p[1]), float(p[2]))
-        

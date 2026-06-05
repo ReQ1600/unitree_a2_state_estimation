@@ -1,7 +1,7 @@
 # default configuration for the Unitree A2 factor-graph state estimator.
 
 simulation:
-  model_path: "assets/a2.xml"     # Unitree A2 MuJoCo model with position actuators
+  model_path: "assets/a2.xml"    # Unitree A2 MuJoCo model with position actuators
   duration: 20.0                  # total simulation time [s]
   timestep: 0.002                # MuJoCo physics timestep [s]
 
