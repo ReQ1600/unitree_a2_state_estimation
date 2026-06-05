@@ -53,7 +53,7 @@ class ImuFactorWrapper(BaseFactor):
         # pose prior from ground-truth (or first estimate)
         # constant bias 0 at first as we will estimate it
         pos = sensor_data.get('base_pos', np.zeros(3))
-        quat = sensor_data.get('base_quat', np.array([0.0, 0.0, 0.0, 1.0]))
+        quat = sensor_data.get('base_quat', np.array([1.0, 0.0, 0.0, 0.0]))
         ns = make_navstate(pos, quat, np.zeros(3))
         graph.add(PriorFactorPose3(pk, ns.pose(), self._prior_pose_noise))
         graph.add(PriorFactorVector(vk, ns.velocity(), self._prior_vel_noise))
@@ -63,6 +63,60 @@ class ImuFactorWrapper(BaseFactor):
         values.insert(pk, ns.pose())
         values.insert(vk, ns.velocity())
         values.insert(bk, ConstantBias())
+
+
+    def add_initial_estimate(
+        self,
+        values: gtsam.Values,
+        step_idx: int,
+        sensor_data: Dict[str, Any],
+        context: Dict[str, Any]) -> None:
+        """Insert initial estimate for pose, velocity and bias at step_idx."""
+        if step_idx == 0:
+            return
+
+        pi = context['pose_key'](step_idx - 1)
+        vi = context['vel_key'](step_idx - 1)
+        pj = context['pose_key'](step_idx)
+        vj = context['vel_key'](step_idx)
+        bi = context['bias_key'](step_idx - 1)
+        bj = context['bias_key'](step_idx)
+
+        pre_integrator = context['pim']
+        if pre_integrator is None:
+            return
+
+        current_estimate = context.get('current_estimate')
+
+        if current_estimate is not None and current_estimate.exists(pi):
+            current_pose = current_estimate.atPose3(pi)
+            current_vel = current_estimate.atVector(vi)
+
+            if current_estimate.exists(bi):
+                current_bias = current_estimate.atConstantBias(bi)
+            else:
+                current_bias = ConstantBias()
+        else:
+            pos = sensor_data.get('base_pos', np.zeros(3))
+            quat = sensor_data.get('base_quat', np.array([1., 0., 0., 0.]))
+            ns = make_navstate(pos, quat, np.zeros(3))
+            current_pose = ns.pose()
+            current_vel = ns.velocity()
+            current_bias = ConstantBias()
+
+        ns_pred = pre_integrator._pim.predict(
+            NavState(current_pose, current_vel),
+            current_bias,
+        )
+
+        if not values.exists(pj):
+            values.insert(pj, ns_pred.pose())
+
+        if not values.exists(vj):
+            values.insert(vj, ns_pred.velocity())
+
+        if not values.exists(bj):
+            values.insert(bj, current_bias)
 
     # transition between subsequent moments
     def add_to_graph(self,
@@ -89,36 +143,50 @@ class ImuFactorWrapper(BaseFactor):
         if pre_integrator is None:
             return
 
+        print("IMU factor added", step_idx)
         # fetches current estimate, computes the imu residual, extracts the covariance, builds a jacobian, linearises around the current sam_prev_result and adds a weighted edge to the bayes tree
         graph.add(CombinedImuFactor(pi, vi, pj, vj, bi, bj, pre_integrator._pim))
 
-        # initial estimate: predict from isam2 current solution
-        # sam needs a starting point before it can optimise
-        sam_prev_result = context.get('current_sam_prev_result')
-        if sam_prev_result is not None and sam_prev_result.exists(pi):
-            current_pose = sam_prev_result.atPose3(pi)
-            current_vel = sam_prev_result.atVector(vi)
-            if sam_prev_result.exists(bi):
-                current_bias = sam_prev_result.atConstantBias(bi)
-            else:
-                from gtsam.imuBias import ConstantBias as CB
-                current_bias = CB()
-        else:
-            # if that fails :(( use ground truth from sensor
-            pos = sensor_data.get('base_pos', np.zeros(3))
-            quat = sensor_data.get('base_quat', np.array([0., 0., 0., 1.]))
-            ns = make_navstate(pos, quat, np.zeros(3))
-            current_pose = ns.pose()
-            current_vel = ns.velocity()
-            from gtsam.imuBias import ConstantBias as CB
-            current_bias = CB()
+        # # initial estimate: predict from isam2 current solution
+        # # sam needs a starting point before it can optimise
+        # sam_prev_result = context.get('current_estimate')
+        # if sam_prev_result is not None and sam_prev_result.exists(pi):
+        #     current_pose = sam_prev_result.atPose3(pi)
+        #     current_vel = sam_prev_result.atVector(vi)
+        #     if sam_prev_result.exists(bi):
+        #         current_bias = sam_prev_result.atConstantBias(bi)
+        #     else:
+        #         from gtsam.imuBias import ConstantBias as CB
+        #         current_bias = CB()
+        # else:
+        #     # if that fails :(( use ground truth from sensor
+        #     pos = sensor_data.get('base_pos', np.zeros(3))
+        #     quat = sensor_data.get('base_quat', np.array([0., 0., 0., 1.]))
+        #     ns = make_navstate(pos, quat, np.zeros(3))
+        #     current_pose = ns.pose()
+        #     current_vel = ns.velocity()
+        #     from gtsam.imuBias import ConstantBias as CB
+        #     current_bias = CB()
 
-        # pim.predict() propagates state for initialisation
-        ns_pred = pre_integrator._pim.predict(NavState(current_pose, current_vel), current_bias)
+        # # pim.predict() propagates state for initialisation
+        # ns_pred = pre_integrator._pim.predict(NavState(current_pose, current_vel), current_bias)
 
-        values.insert(pj, ns_pred.pose())
-        values.insert(vj, ns_pred.velocity())
-        values.insert(bj, current_bias)  # bias accumulates over time, botching everything
+        # if not values.exists(pj):
+        #     values.insert(pj, ns_pred.pose())
+
+        # if not values.exists(vj):
+        #     values.insert(vj, ns_pred.velocity())
+
+        # if not values.exists(bj):
+        #     values.insert(bj, current_bias) # bias accumulates over time, botching everything
+
+        # graph.add(
+        #     gtsam.PriorFactorConstantBias(
+        #         bj,
+        #         current_bias,
+        #         gtsam.noiseModel.Isotropic.Sigma(6, 10.0),
+        #     )
+        # )
 
     def sensor_fields(self) -> List[str]:
         return ['imu_acc', 'imu_gyro', 'base_pos', 'base_quat']

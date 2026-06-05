@@ -73,10 +73,10 @@ def make_navstate(position: np.ndarray,
     Returns:
         gtsam.NavState.
     """
-    rot = Rot3.Quaternion(quaternion_xyzw[3],  # w
-                          quaternion_xyzw[0],  # x
-                          quaternion_xyzw[1],  # y
-                          quaternion_xyzw[2])  # z
+    rot = Rot3.Quaternion(quaternion_xyzw[0],  # w
+                          quaternion_xyzw[1],  # x
+                          quaternion_xyzw[2],  # y
+                          quaternion_xyzw[3])  # z
     pose = Pose3(rot, Point3(*position))
     return NavState(pose, velocity)
 

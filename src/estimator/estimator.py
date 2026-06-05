@@ -47,6 +47,7 @@ class Estimator:
         isam_params = ISAM2Params()
         # relinerise graph on every update
         isam_params.relinearizeSkip = config.get('isam_relinearize_skip', 1)
+        isam_params.setFactorization("QR")
         self._isam = ISAM2(isam_params)
 
         # states
@@ -163,7 +164,12 @@ class Estimator:
 
         # provide current isam estimate so factors can predict next state
         context['current_estimate'] = self._isam.calculateEstimate()
-
+        if self._keyframe_idx > 60:
+            print(
+                "contacts at keyframe",
+                self._keyframe_idx,
+                sensor_data["foot_contacts"],
+            )
         self._registry.add_all_initial_estimates(
             values,
             self._keyframe_idx,
@@ -171,13 +177,53 @@ class Estimator:
             context,
         )
 
-        # all registered factors add their factors + initial estimates
-        self._registry.add_all_to_graph(graph, values,
-                                        self._keyframe_idx, sensor_data, context)
+        print("contacts at keyframe", self._keyframe_idx, sensor_data["foot_contacts"])
 
+        self._registry.add_all_to_graph(
+            graph,
+            values,
+            self._keyframe_idx,
+            sensor_data,
+            context,
+        )
+        print(
+            "STATE",
+            self._keyframe_idx,
+            values.exists(PoseKey(self._keyframe_idx)),
+            values.exists(VelKey(self._keyframe_idx)),
+            values.exists(BiasKey(self._keyframe_idx)),
+        )
+        print(
+            "PREV",
+            self._keyframe_idx - 1,
+            values.exists(PoseKey(self._keyframe_idx - 1)),
+            values.exists(VelKey(self._keyframe_idx - 1)),
+            values.exists(BiasKey(self._keyframe_idx - 1)),
+        )
         # update solver
         # adds new factors to the graph, realinerses, updates only affected parts of tree
         self._isam.update(graph, values)
+
+        result = self._isam.calculateEstimate()
+        pk = PoseKey(self._keyframe_idx)
+
+        if result.exists(pk):
+            pose = result.atPose3(pk)
+            print(
+                "EST POSE",
+                self._keyframe_idx,
+                pose.x(),
+                pose.y(),
+                pose.z(),
+            )
+            est_rot = result.atPose3(pk).rotation().rpy()
+
+            print(
+                "EST RPY",
+                np.degrees(est_rot[0]),
+                np.degrees(est_rot[1]),
+                np.degrees(est_rot[2]),
+            )
 
         # reset preintegrator for next window
         self._pim = ImuPreintegrator(self._preint_params, self._current_bias)

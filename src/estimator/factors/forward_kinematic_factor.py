@@ -43,15 +43,16 @@ class ForwardKinematicFactor(BaseFactor):
             return
         
         # base and leg contact keys  
-        base_key = gtsam.symbol('x', step_idx)
+        base_key = ctx['pose_key'](step_idx)
         contact_key = gtsam.symbol('c', self.leg_id * 1000 + step_idx)
+        # print("FK init", self.leg_id, step_idx, contact_key)
 
         # init x_k from ground truth if doesnt exist 
-        if not vals.exists(base_key):
-            base_pos = sensor_data['base_pos']
-            base_quat = sensor_data['base_quat']
-            base_rot = gtsam.Rot3.Quaternion(base_quat[0], base_quat[1], base_quat[2], base_quat[3])
-            vals.insert(base_key, gtsam.Pose3(base_rot, base_pos))
+        # if not vals.exists(base_key):
+        #     base_pos = sensor_data['base_pos']
+        #     base_quat = sensor_data['base_quat']
+        #     base_rot = gtsam.Rot3.Quaternion(base_quat[0], base_quat[1], base_quat[2], base_quat[3])
+        #     vals.insert(base_key, gtsam.Pose3(base_rot, base_pos))
 
         # init based on current base estimation and measurements
         if not vals.exists(contact_key):
@@ -74,31 +75,40 @@ class ForwardKinematicFactor(BaseFactor):
         """
         adds gtsam.CustomFactor to the graph calculating residues f_Ri and f_pi 
         """
-        print("FK add_to_graph", self.leg_id, step_idx, sensor_data["foot_contacts"][self.leg_id])
+        # print("FK add_to_graph", self.leg_id, step_idx, sensor_data["foot_contacts"][self.leg_id])
         # if leg is not on the ground calculating fc would only make the estimation worse
         if sensor_data['foot_contacts'][self.leg_id] == 0:
             return
 
         # base and leg contact keys  
-        base_key = gtsam.symbol('x', step_idx)
+        base_key = context['pose_key'](step_idx)
         contact_key = gtsam.symbol('c', self.leg_id * 1000 + step_idx)
         
         if not values.exists(base_key) or not values.exists(contact_key):
             return
+
+        # # print("FK factor", self.leg_id, step_idx, contact_key)
             
-        print(f"DEBUG: keys available in  sensor_data: {sensor_data.keys()}")
+        # print(f"DEBUG: keys available in  sensor_data: {sensor_data.keys()}")
         leg_encoder_data = sensor_data['joint_states'][self.leg_id]
 
         fk_R = self._f_R(leg_encoder_data)
         fk_p = self._f_p(leg_encoder_data)
         covariance = self._calculate_covariance(leg_encoder_data)
-        noise_model = gtsam.noiseModel.Gaussian.Covariance(covariance)
+        covariance = covariance + np.eye(6) * 1e-6
+        noise_model = gtsam.noiseModel.Diagonal.Sigmas(
+            np.array([1.0, 1.0, 1.0, 1.0, 1.0, 1.0])
+        )
+        # print("regularized rank:", np.linalg.matrix_rank(covariance))
 
         def err_func(this, v, H):
             """
             error function that calculates r_fRi and r_fpi
             """
-
+            # if H is None:
+            #     print("FK residual only")
+            # else:
+            #     print("FK residual + jacobians")
             base_pose = v.atPose3(base_key)
             contact_pose = v.atPose3(contact_key)
 
@@ -135,9 +145,31 @@ class ForwardKinematicFactor(BaseFactor):
             H1[3:6, 3:6] = R_i.inverse().compose(C_i).matrix()
 
             if H is not None:
-                H[0] = H0
-                H[1] = H1
-                
+                def residual_from_values(vals):
+                    base_pose_dbg = vals.atPose3(base_key)
+                    contact_pose_dbg = vals.atPose3(contact_key)
+
+                    R_dbg = base_pose_dbg.rotation()
+                    p_dbg = base_pose_dbg.translation()
+                    C_dbg = contact_pose_dbg.rotation()
+                    d_dbg = contact_pose_dbg.translation()
+
+                    r_R_dbg = gtsam.Rot3.Logmap(
+                        fk_R.inverse().compose(R_dbg.inverse().compose(C_dbg))
+                    )
+                    r_p_dbg = R_dbg.unrotate(d_dbg - p_dbg) - fk_p
+
+                    return np.hstack((r_R_dbg, r_p_dbg))
+
+                H0_num = numerical_jacobian_pose(v, base_key, residual_from_values)
+                H1_num = numerical_jacobian_pose(v, contact_key, residual_from_values)
+
+                # print("FK H0 diff:", np.linalg.norm(H0 - H0_num))
+                # print("FK H1 diff:", np.linalg.norm(H1 - H1_num))
+
+                H[0] = H0_num
+                H[1] = H1_num
+                            
             return np.hstack((r_R, r_p))
 
         factor = gtsam.CustomFactor(noise_model, [base_key, contact_key], err_func)
@@ -150,7 +182,7 @@ class ForwardKinematicFactor(BaseFactor):
                   context: Dict[str, Any]) -> None:
         
         contact_key = gtsam.symbol('c', self.leg_id * 1000)
-        base_key = gtsam.symbol('x', 0)
+        base_key = context['pose_key'](0)
         
         #init from ground truth if doesnt exist
         if not values.exists(base_key):
@@ -457,3 +489,21 @@ def inverse_right_jacobian_so3(phi):
         / (theta ** 2)
         * (phi_hat @ phi_hat)
     )
+
+def numerical_jacobian_pose(values, pose_key, residual_func, eps=1e-6):
+    pose = values.atPose3(pose_key)
+    base_residual = residual_func(values)
+
+    jac = np.zeros((6, 6), dtype=float)
+
+    for col in range(6):
+        delta = np.zeros(6, dtype=float)
+        delta[col] = eps
+
+        values_plus = gtsam.Values(values)
+        values_plus.update(pose_key, pose.retract(delta))
+
+        residual_plus = residual_func(values_plus)
+        jac[:, col] = (residual_plus - base_residual) / eps
+
+    return jac    

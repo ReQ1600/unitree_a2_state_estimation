@@ -140,6 +140,8 @@ def main():
         'dt': dt,
     }
 
+    print("RAW BASE QUAT INIT:", sensor_data["base_quat"])
+
     if noise_gen:
         acc, gyro = noise_gen.corrupt(acc, gyro, dt)
         sensor_data['imu_acc'] = acc
