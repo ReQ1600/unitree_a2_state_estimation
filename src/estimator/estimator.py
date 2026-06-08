@@ -186,20 +186,20 @@ class Estimator:
             sensor_data,
             context,
         )
-        print(
-            "STATE",
-            self._keyframe_idx,
-            values.exists(PoseKey(self._keyframe_idx)),
-            values.exists(VelKey(self._keyframe_idx)),
-            values.exists(BiasKey(self._keyframe_idx)),
-        )
-        print(
-            "PREV",
-            self._keyframe_idx - 1,
-            values.exists(PoseKey(self._keyframe_idx - 1)),
-            values.exists(VelKey(self._keyframe_idx - 1)),
-            values.exists(BiasKey(self._keyframe_idx - 1)),
-        )
+        # print(
+        #     "STATE",
+        #     self._keyframe_idx,
+        #     values.exists(PoseKey(self._keyframe_idx)),
+        #     values.exists(VelKey(self._keyframe_idx)),
+        #     values.exists(BiasKey(self._keyframe_idx)),
+        # )
+        # print(
+        #     "PREV",
+        #     self._keyframe_idx - 1,
+        #     values.exists(PoseKey(self._keyframe_idx - 1)),
+        #     values.exists(VelKey(self._keyframe_idx - 1)),
+        #     values.exists(BiasKey(self._keyframe_idx - 1)),
+        # )
         # update solver
         # adds new factors to the graph, realinerses, updates only affected parts of tree
         self._isam.update(graph, values)

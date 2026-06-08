@@ -95,7 +95,7 @@ class ForwardKinematicFactor(BaseFactor):
         fk_R = self._f_R(leg_encoder_data)
         fk_p = self._f_p(leg_encoder_data)
         covariance = self._calculate_covariance(leg_encoder_data)
-        covariance = covariance + np.eye(6) * 1e-6
+        covariance = covariance + np.eye(6)
         noise_model = gtsam.noiseModel.Diagonal.Sigmas(
             np.array([1.0, 1.0, 1.0, 1.0, 1.0, 1.0])
         )

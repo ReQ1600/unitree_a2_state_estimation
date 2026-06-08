@@ -4,6 +4,7 @@ simulation:
   model_path: "assets/a2.xml"    # Unitree A2 MuJoCo model with position actuators
   duration: 20.0                  # total simulation time [s]
   timestep: 0.002                # MuJoCo physics timestep [s]
+  seed: 2137
 
 imu:
   accel_noise_density: 0.01      # [m/s² / sqrt(Hz)]

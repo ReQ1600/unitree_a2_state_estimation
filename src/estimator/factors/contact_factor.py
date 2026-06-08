@@ -111,13 +111,13 @@ class ContactFactor(BaseFactor):
             ).reshape(3, 3)
 
             contact_noise = noiseModel.Gaussian.Covariance(covariance_ij)
-            print(
-                "CONTACT ADD",
-                foot_idx,
-                step_idx,
-                current_estimate.exists(contact_key_i) if current_estimate is not None else None,
-                values.exists(contact_key_j),
-            )
+            # print(
+            #     "CONTACT ADD",
+            #     foot_idx,
+            #     step_idx,
+            #     current_estimate.exists(contact_key_i) if current_estimate is not None else None,
+            #     values.exists(contact_key_j),
+            # )
 
             graph.add(
                 self._make_point_contact_factor(
@@ -142,40 +142,40 @@ class ContactFactor(BaseFactor):
         current_estimate: Optional[gtsam.Values],
     ) -> bool:
         """Insert initial estimate for ContactKey(foot, step_idx)."""
-        print(
-            "CONTACT INIT CALL",
-            foot_idx,
-            step_idx,
-            contact_key_i,
-            contact_key_j,
-        )
+        # print(
+        #     "CONTACT INIT CALL",
+        #     foot_idx,
+        #     step_idx,
+        #     contact_key_i,
+        #     contact_key_j,
+        # )
         if values.exists(contact_key_j):
             return True
 
         if current_estimate is not None and current_estimate.exists(contact_key_i):
             previous_pose = current_estimate.atPose3(contact_key_i)
-            print(
-                "CONTACT INIT",
-                foot_idx,
-                step_idx,
-                contact_key_j,
-                values.exists(contact_key_j)
-            )
+            # print(
+            #     "CONTACT INIT",
+            #     foot_idx,
+            #     step_idx,
+            #     contact_key_j,
+            #     values.exists(contact_key_j)
+            # )
             values.insert(contact_key_j, previous_pose)
-            print(
-                "CONTACT INIT OK",
-                foot_idx,
-                step_idx,
-                contact_key_i,
-            )
+            # print(
+            #     "CONTACT INIT OK",
+            #     foot_idx,
+            #     step_idx,
+            #     contact_key_i,
+            # )
             return True
 
-        print(
-            "CONTACT INIT FAILED",
-            foot_idx,
-            step_idx,
-            contact_key_i,
-        )
+        # print(
+        #     "CONTACT INIT FAILED",
+        #     foot_idx,
+        #     step_idx,
+        #     contact_key_i,
+        # )
         return False
 
     @staticmethod

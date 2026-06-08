@@ -41,6 +41,7 @@ def main():
     args = parser.parse_args()
 
     cfg = load_config(args.config)
+    np.random.seed(cfg['simulation']['seed'])
 
     # compute nominal stance angles for initialisation
     nom = cfg['gait']['nominal']
@@ -256,7 +257,7 @@ def main():
             ax.legend()
             ax.grid(True)
         axes[-1].set_xlabel('Time [s]')
-        fig.suptitle('A2 State Estimation — IMU+FK (iSAM2)')
+        fig.suptitle('A2 State Estimation — IMU+FKF+CF(iSAM2)')
         plt.tight_layout()
         plt.show()
 
