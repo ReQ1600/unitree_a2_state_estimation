@@ -97,7 +97,7 @@ class ForwardKinematicFactor(BaseFactor):
         covariance = self._calculate_covariance(leg_encoder_data)
         covariance = covariance + np.eye(6)
         noise_model = gtsam.noiseModel.Diagonal.Sigmas(
-            np.array([1.0, 1.0, 1.0, 1.0, 1.0, 1.0])
+            covariance @ np.array([1.0, 1.0, 1.0, 1.0, 1.0, 1.0])
         )
         # print("regularized rank:", np.linalg.matrix_rank(covariance))
 

@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.bridge.sim_bridge import SimBridge
 from src.bridge.gait_generator import GaitGenerator
-from src.bridge.sensor_noise import ImuNoiseGenerator, ImuNoiseParams
+from src.bridge.sensor_noise import ImuNoiseGenerator, ImuNoiseParams, JointNoiseGenerator, JointNoiseParams
 from src.estimator.imu_preintegrator import ImuPreintegrator
 from src.estimator.factor_registry import FactorRegistry
 from src.estimator.factors.imu_factor import ImuFactorWrapper
@@ -61,15 +61,22 @@ def main():
     gait_gen = GaitGenerator(cfg['gait'])
 
     # optionally noise
-    noise_gen = None
+    imu_noise_gen = None
+    joint_noise_gen = None 
     if cfg['noise']['enabled']:
         np_cfg = cfg['noise']
-        noise_gen = ImuNoiseGenerator(ImuNoiseParams(
+        imu_noise_gen = ImuNoiseGenerator(ImuNoiseParams(
             acc_white_density=np_cfg['accel_white_density'],
             gyro_white_density=np_cfg['gyro_white_density'],
             acc_bias_density=np_cfg['accel_bias_density'],
             gyro_bias_density=np_cfg['gyro_bias_density'],
         ))
+
+        joint_noise_gen = JointNoiseGenerator(JointNoiseParams(
+            joint_bias_density=np_cfg['joint_bias_density'],
+            joint_white_density=np_cfg['joint_white_density']
+        ))
+
 
     # create gtsam parameter object using ct noise densities
     imu_cfg = cfg['imu']
@@ -96,7 +103,7 @@ def main():
 
     # registering forward kinematic factor for 4 legs
     fk_factors = [
-        ForwardKinematicFactor(i, 0.00873, cfg['simulation']['model_path'])
+        ForwardKinematicFactor(i, 0.00001, cfg['simulation']['model_path'])
         for i in range(4)
     ]
 
@@ -143,10 +150,14 @@ def main():
 
     print("RAW BASE QUAT INIT:", sensor_data["base_quat"])
 
-    if noise_gen:
-        acc, gyro = noise_gen.corrupt(acc, gyro, dt)
+    if imu_noise_gen:
+        acc, gyro = imu_noise_gen.corrupt(acc, gyro, dt)
         sensor_data['imu_acc'] = acc
         sensor_data['imu_gyro'] = gyro
+    
+    if joint_noise_gen:
+        joint_states = joint_noise_gen.corrupt(joint_states, dt)
+        sensor_data["joint_states"] = joint_states
 
     # trigger the prior factors
     estimator.initialise(sensor_data)
@@ -207,8 +218,11 @@ def main():
             # ────────────────────────────────────────────────────────────
 
             # corrupt our readings
-            if noise_gen:
-                acc, gyro = noise_gen.corrupt(acc, gyro, dt)
+            if imu_noise_gen:
+                acc, gyro = imu_noise_gen.corrupt(acc, gyro, dt)
+            
+            if joint_noise_gen:
+                joint_states = joint_noise_gen.corrupt(joint_states, dt)
 
             sensor_data = {
                 'imu_acc': acc,
