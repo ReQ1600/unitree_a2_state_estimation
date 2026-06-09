@@ -6,6 +6,10 @@ Implementation of the factor-graph state estimator from Hartley et al. (2017, ar
 
 ---
 
+## Goals
+1. Implent IMU, contact and forward kinematic factors
+2. Improve state estimation in x and y axis
+
 ## Setup
 
 Create and activate a Python virtual environment and install dependencies:
