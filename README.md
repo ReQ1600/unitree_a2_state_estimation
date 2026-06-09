@@ -42,11 +42,13 @@ If you keep the repo elsewhere, update the model path in `config/default.yaml` o
 ├── scripts/run_estimator.py      # Example runner (simulation -> estimator)
 ├── src/
 │   ├── bridge/                   # MuJoCo ↔ estimator bridge
+│   │   ├── gait_generator.py	  # Trot gait generator 
 │   │   ├── sim_bridge.py         # Simulation bridge (SimBridge)
 │   │   └── sensor_noise.py       # IMU noise injection helpers
 │   └── estimator/                # GTSAM / iSAM2 estimator core
 │       ├── gtsam_types.py        # Key generators, NavState helpers
-│       ├── imu_preintegrator.py  # Preintegration wrapper
+│       ├── contact_preintegrator.py # contact preintegration wrapper
+│       ├── imu_preintegrator.py  # IMU preintegration wrapper
 │       ├── factor_registry.py    # Factor plugin system
 │       ├── estimator.py          # Main iSAM2 loop
 │       └── factors/               # Factor implementations (IMU, FK, contact...)
@@ -59,11 +61,14 @@ If you keep the repo elsewhere, update the model path in `config/default.yaml` o
 ## What is implemented
 
 - A MuJoCo simulation bridge (`src/bridge/sim_bridge.py`) that exposes IMU, base pose, joint states and contacts.
-- IMU noise model and generator (`src/bridge/sensor_noise.py`).
-- GTSAM helpers and an IMU preintegrator wrapper (`src/estimator/gtsam_types.py`, `src/estimator/imu_preintegrator.py`).
+- IMU and joint state noise model and generator (`src/bridge/sensor_noise.py`).
+- Forward kinematic factor (`src/estimator/factors/forward_kinematic_factor.py`)
+- Contact factor (`src/estimator/factors/contact_factor.py`)
+- GTSAM helpers, IMU and contact preintegrator wrapper (`src/estimator/gtsam_types.py`, `src/estimator/imu_preintegrator.py`, `src/estimator/contact_preintegrator.py`).
 - A factor plugin system (`src/estimator/factor_registry.py`) so contributors can add factors without modifying the estimator core.
 - An IMU factor wrapper and an iSAM2-based estimator loop (`src/estimator/factors/imu_factor.py`, `src/estimator/estimator.py`).
-- Example runner `scripts/run_estimator.py` which wires the bridge, registry and estimator and runs a short simulation.
+- Main runner `scripts/run_estimator.py` which wires the bridge, registry and estimator and runs a short simulation.
+- Gait generator `src/bridge/gait_generator.py` which generates a sinusoidal trot gait.
 
 These components implement a working skeleton of the factor-graph estimator from Hartley et al. (2017). Forward-kinematics and contact factors are left as extensible plugins.
 
@@ -197,61 +202,22 @@ B = ΔR_ik fR(α_k) Δt
 
 as described in the paper.
 
+### Forward kinematic subsystem
+* Contact rotation state representation
+* Per leg forward kinematics calculation
+* Frame fk rotation and position calculation
+
 ### Estimator framework
 
 * Factor plugin system
 * iSAM2 incremental optimization
 * IMU factor registration
+* Forward kinematic factor registration
 * Contact factor registration
 * Keyframe-based estimation pipeline
 
 ---
 
-## Current limitations
-
-The point-contact factor and contact preintegrator are implemented and validated.
-
-The following placeholders remain until the forward-kinematics module is completed:
-
-### 1. Contact-frame rotations
-
-The quantity
-
-```text
-fR(α_k)
-```
-
-is currently represented by identity matrices.
-
-This placeholder is located in:
-
-```python
-SimBridge._extract_fk_contact_rotation()
-```
-
-The FK module is expected to provide the paper quantity `fR(α_k)`, i.e. the contact-frame orientation relative to the base frame, with shape `(4, 3, 3)` and foot order `[FL, FR, RL, RR]`.
-
-Once FK is available, no changes to `ContactFactor` or `ContactPreintegrator` should be required.
-
-### 2. Initial contact point estimates
-
-Initial contact point states are currently initialized using placeholder world-frame coordinates.
-
-These should ultimately be initialized from FK.
-
-### 3. Contact noise tuning
-
-The parameter
-
-```yaml
-contact_velocity_noise_sigma
-```
-
-is currently hand-tuned.
-
-Once FK uncertainty modelling is available, it should be revisited.
-
----
 
 ## Quick start
 
