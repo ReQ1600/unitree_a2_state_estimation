@@ -107,59 +107,6 @@ source .venv/bin/activate
 PYTHONPATH=. python3 tests/test_phase_c.py && PYTHONPATH=. python3 tests/test_brige.py
 ```
 
-## Developer notes (how to add a new factor)
-
-1. Implement a class that conforms to the `BaseFactor` interface in `src/estimator/factor_registry.py`:
-	- `add_initial_estimate(values, step_idx, sensor_data, context)` — seed any `gtsam.Values` your factor will reference.
-	- `add_to_graph(graph, values, step_idx, sensor_data, context)` — add factor(s) to the provided `gtsam.NonlinearFactorGraph`.
-2. Place the file under `src/estimator/factors/` and register the factor in `scripts/run_estimator.py` via `registry.register(MyFactor(...))`.
-3. Add unit tests that exercise `add_initial_estimate` + `add_to_graph` in isolation.
-
-See the estimator implementation in `src/estimator/` for details on the registry, IMU factor wrapper, and estimator loop.
-
-## Troubleshooting
-
-- "Key X does not exist in Values": ensure your factor's `add_initial_estimate` inserts any referenced keys before `isam.update()` is called.
-- GTSAM constructor mismatches: the Python wrapper may expose different constructors than C++. Use `dir(gtsam)` and `help()` to inspect available signatures.
-- MuJoCo mesh load errors: ensure `simulation.model_path` points to the original model location in `third_party/unitree_rl_mjlab` or that `assets/` contains the required meshes.
-
----
-
-## Project structure (high level)
-
-```text
-├── config/default.yaml           # Runtime & estimator parameters
-├── scripts/run_estimator.py      # Example runner (simulation -> estimator)
-├── src/
-│   ├── bridge/
-│   │   ├── sim_bridge.py         # MuJoCo ↔ estimator bridge
-│   │   ├── sensor_noise.py       # IMU noise injection helpers
-│   │   └── types.py              # Bridge data structures
-│   │
-│   └── estimator/
-│       ├── gtsam_types.py
-│       ├── imu_preintegrator.py
-│       ├── contact_preintegrator.py
-│       ├── factor_registry.py
-│       ├── estimator.py
-│       │
-│       └── factors/
-│           ├── imu_factor.py
-│           ├── contact_factor.py
-│           └── ...
-│
-├── tests/
-│   ├── test_contact_preintegrator.py
-│   ├── test_contact_factor.py
-│   └── test_contact_pipeline.py
-│
-├── docs/
-├── assets/
-└── third_party/
-```
-
----
-
 ## What is implemented
 
 ### Simulation bridge
@@ -386,8 +333,23 @@ Future FK integration should only replace FK placeholders and should not require
 
 ---
 
+## Developer notes (how to add a new factor)
+
+1. Implement a class that conforms to the `BaseFactor` interface in `src/estimator/factor_registry.py`:
+	- `add_initial_estimate(values, step_idx, sensor_data, context)` — seed any `gtsam.Values` your factor will reference.
+	- `add_to_graph(graph, values, step_idx, sensor_data, context)` — add factor(s) to the provided `gtsam.NonlinearFactorGraph`.
+2. Place the file under `src/estimator/factors/` and register the factor in `scripts/run_estimator.py` via `registry.register(MyFactor(...))`.
+3. Add unit tests that exercise `add_initial_estimate` + `add_to_graph` in isolation.
+
+See the estimator implementation in `src/estimator/` for details on the registry, IMU factor wrapper, and estimator loop.
+
 ## Troubleshooting
 
+- "Key X does not exist in Values": ensure your factor's `add_initial_estimate` inserts any referenced keys before `isam.update()` is called.
+- GTSAM constructor mismatches: the Python wrapper may expose different constructors than C++. Use `dir(gtsam)` and `help()` to inspect available signatures.
+- MuJoCo mesh load errors: ensure `simulation.model_path` points to the original model location in `third_party/unitree_rl_mjlab` or that `assets/` contains the required meshes.
+
+---
 ### Missing GTSAM symbols
 
 Inspect available Python bindings:
