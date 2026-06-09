@@ -14,6 +14,7 @@ from .gtsam_types import (
     navstate_to_position, navstate_to_vector3, zero_bias
 )
 from .imu_preintegrator import ImuPreintegrator
+from .contact_preintegrator import ContactPreintegrator
 from .factor_registry import FactorRegistry
 
 
@@ -46,6 +47,7 @@ class Estimator:
         isam_params = ISAM2Params()
         # relinerise graph on every update
         isam_params.relinearizeSkip = config.get('isam_relinearize_skip', 1)
+        isam_params.setFactorization("QR")
         self._isam = ISAM2(isam_params)
 
         # states
@@ -58,6 +60,9 @@ class Estimator:
         # preintegrator is not created untili initilalise()
         self._pim: Optional[ImuPreintegrator] = None
         self._current_bias = zero_bias()
+
+        self._contact_pim: Optional[ContactPreintegrator] = None
+        self._contact_preint_config = config["contact_preintegration"]
 
         # logs
         self._estimates: List[Dict[str, Any]] = []
@@ -78,6 +83,10 @@ class Estimator:
         self._imu_steps_since_keyframe = 0
         self._keyframe_idx = 0
 
+        self._contact_pim = ContactPreintegrator.from_config(
+            self._contact_preint_config
+        )
+
         # log initial estimate
         self._log_estimate(0, sensor_data)
 
@@ -95,6 +104,23 @@ class Estimator:
 
         if self._pim is not None:
             self._pim.integrate(acc, gyro, dt)
+
+        if self._contact_pim is not None and self._pim is not None:
+            foot_contacts = np.asarray(sensor_data["foot_contacts"], dtype=float).reshape(4)
+
+            delta_rotation_ik = self._pim.delta_rotation()
+
+            fk_contact_rotation = np.asarray(
+                sensor_data.get("fk_contact_rotation", np.eye(3)),
+                dtype=float,
+            )
+
+            self._contact_pim.integrate(
+                contact_flags=foot_contacts,
+                dt=dt,
+                delta_rotation_ik=delta_rotation_ik,
+                fk_contact_rotation=fk_contact_rotation,
+            )
 
         self._imu_steps_since_keyframe += 1
         self._step_counter += 1
@@ -138,18 +164,74 @@ class Estimator:
 
         # provide current isam estimate so factors can predict next state
         context['current_estimate'] = self._isam.calculateEstimate()
+        if self._keyframe_idx > 60:
+            print(
+                "contacts at keyframe",
+                self._keyframe_idx,
+                sensor_data["foot_contacts"],
+            )
+        self._registry.add_all_initial_estimates(
+            values,
+            self._keyframe_idx,
+            sensor_data,
+            context,
+        )
 
-        # all registered factors add their factors + initial estimates
-        self._registry.add_all_to_graph(graph, values,
-                                        self._keyframe_idx, sensor_data, context)
+        print("contacts at keyframe", self._keyframe_idx, sensor_data["foot_contacts"])
 
+        self._registry.add_all_to_graph(
+            graph,
+            values,
+            self._keyframe_idx,
+            sensor_data,
+            context,
+        )
+        # print(
+        #     "STATE",
+        #     self._keyframe_idx,
+        #     values.exists(PoseKey(self._keyframe_idx)),
+        #     values.exists(VelKey(self._keyframe_idx)),
+        #     values.exists(BiasKey(self._keyframe_idx)),
+        # )
+        # print(
+        #     "PREV",
+        #     self._keyframe_idx - 1,
+        #     values.exists(PoseKey(self._keyframe_idx - 1)),
+        #     values.exists(VelKey(self._keyframe_idx - 1)),
+        #     values.exists(BiasKey(self._keyframe_idx - 1)),
+        # )
         # update solver
         # adds new factors to the graph, realinerses, updates only affected parts of tree
         self._isam.update(graph, values)
 
+        result = self._isam.calculateEstimate()
+        pk = PoseKey(self._keyframe_idx)
+
+        if result.exists(pk):
+            pose = result.atPose3(pk)
+            print(
+                "EST POSE",
+                self._keyframe_idx,
+                pose.x(),
+                pose.y(),
+                pose.z(),
+            )
+            est_rot = result.atPose3(pk).rotation().rpy()
+
+            print(
+                "EST RPY",
+                np.degrees(est_rot[0]),
+                np.degrees(est_rot[1]),
+                np.degrees(est_rot[2]),
+            )
+
         # reset preintegrator for next window
         self._pim = ImuPreintegrator(self._preint_params, self._current_bias)
         self._imu_steps_since_keyframe = 0
+
+        self._contact_pim = ContactPreintegrator.from_config(
+            self._contact_preint_config
+        )
 
         # log log log
         self._log_estimate(self._keyframe_idx, sensor_data)
@@ -160,6 +242,8 @@ class Estimator:
             'vel_key': VelKey,
             'bias_key': BiasKey,
             'pim': self._pim,
+            'contact_pim': self._contact_pim,
+            'initial_contact_points': np.zeros((4, 3)),
         }
 
     def _log_estimate(self, kf_idx: int, sensor_data: Dict[str, Any]) -> None:

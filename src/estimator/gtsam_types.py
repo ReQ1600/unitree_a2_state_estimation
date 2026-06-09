@@ -4,6 +4,7 @@ Key numbering scheme (avoids collisions between different variable types):
   PoseKey(i)   = i         (gtsam.Pose3 / gtsam.NavState)
   VelKey(i)    = 10000 + i (gtsam.Vector, 3D velocity)
   BiasKey(i)   = 20000 + i (gtsam.imuBias.ConstantBias)
+  ContactKey(foot, i) = gtsam.symbol('c', foot * 1000 + i)
 
 Utility functions:
   make_navstate(pos, quat_xyzw, vel)  -> gtsam.NavState
@@ -39,6 +40,24 @@ def BiasKey(i: int) -> int:
     return 20000 + i
 
 
+def FootKey(foot_idx: int, step_idx: int) -> int:
+    """Deterministic key for a contact frame of a specific foot at a keyframe.
+
+    This matches ForwardKinematicFactor, which uses:
+        gtsam.symbol('c', foot_idx * 1000 + step_idx)
+
+    The contact variable is a Pose3:
+        C_i = contact frame orientation
+        d_i = contact frame position
+    """
+    return gtsam.symbol("c", foot_idx * 1000 + step_idx)
+
+
+def ContactKey(foot_idx: int, step_idx: int) -> int:
+    """Alias for FootKey. Represents contact frame Pose3 at a keyframe."""
+    return FootKey(foot_idx, step_idx)
+
+
 # mujoco uses [xyzw], gtsam wants [wxyz] smh
 # NavState = (pose3, vector3) 
 def make_navstate(position: np.ndarray,
@@ -54,10 +73,10 @@ def make_navstate(position: np.ndarray,
     Returns:
         gtsam.NavState.
     """
-    rot = Rot3.Quaternion(quaternion_xyzw[3],  # w
-                          quaternion_xyzw[0],  # x
-                          quaternion_xyzw[1],  # y
-                          quaternion_xyzw[2])  # z
+    rot = Rot3.Quaternion(quaternion_xyzw[0],  # w
+                          quaternion_xyzw[1],  # x
+                          quaternion_xyzw[2],  # y
+                          quaternion_xyzw[3])  # z
     pose = Pose3(rot, Point3(*position))
     return NavState(pose, velocity)
 

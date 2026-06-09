@@ -20,11 +20,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.bridge.sim_bridge import SimBridge
 from src.bridge.gait_generator import GaitGenerator
-from src.bridge.sensor_noise import ImuNoiseGenerator, ImuNoiseParams
+from src.bridge.sensor_noise import ImuNoiseGenerator, ImuNoiseParams, JointNoiseGenerator, JointNoiseParams
 from src.estimator.imu_preintegrator import ImuPreintegrator
 from src.estimator.factor_registry import FactorRegistry
 from src.estimator.factors.imu_factor import ImuFactorWrapper
 from src.estimator.factors.forward_kinematic_factor import ForwardKinematicFactor
+from src.estimator.factors.contact_factor import ContactFactor
 from src.estimator.estimator import Estimator
 
 
@@ -40,6 +41,7 @@ def main():
     args = parser.parse_args()
 
     cfg = load_config(args.config)
+    np.random.seed(cfg['simulation']['seed'])
 
     # compute nominal stance angles for initialisation
     nom = cfg['gait']['nominal']
@@ -59,15 +61,22 @@ def main():
     gait_gen = GaitGenerator(cfg['gait'])
 
     # optionally noise
-    noise_gen = None
+    imu_noise_gen = None
+    joint_noise_gen = None 
     if cfg['noise']['enabled']:
         np_cfg = cfg['noise']
-        noise_gen = ImuNoiseGenerator(ImuNoiseParams(
+        imu_noise_gen = ImuNoiseGenerator(ImuNoiseParams(
             acc_white_density=np_cfg['accel_white_density'],
             gyro_white_density=np_cfg['gyro_white_density'],
             acc_bias_density=np_cfg['accel_bias_density'],
             gyro_bias_density=np_cfg['gyro_bias_density'],
         ))
+
+        joint_noise_gen = JointNoiseGenerator(JointNoiseParams(
+            joint_bias_density=np_cfg['joint_bias_density'],
+            joint_white_density=np_cfg['joint_white_density']
+        ))
+
 
     # create gtsam parameter object using ct noise densities
     imu_cfg = cfg['imu']
@@ -81,19 +90,34 @@ def main():
 
     # register factors
     registry = FactorRegistry()
-    est_cfg = cfg['estimator']
+
+    est_cfg = dict(cfg["estimator"])
+    est_cfg["contact_preintegration"] = cfg["contact_preintegration"]
+
     imu_factor = ImuFactorWrapper(
-        prior_pose_sigma=est_cfg.get('prior_pose_sigma', 0.001),
-        prior_vel_sigma=est_cfg.get('prior_vel_sigma', 0.01),
-        prior_bias_sigma=est_cfg.get('prior_bias_sigma', 0.1),
+        prior_pose_sigma=est_cfg.get("prior_pose_sigma", 0.001),
+        prior_vel_sigma=est_cfg.get("prior_vel_sigma", 0.01),
+        prior_bias_sigma=est_cfg.get("prior_bias_sigma", 0.1),
     )
     registry.register(imu_factor)
 
     # registering forward kinematic factor for 4 legs
-    for i in range(4):
-        registry.register(ForwardKinematicFactor(i, 0.00873, cfg['simulation']['model_path']))
+    fk_factors = [
+        ForwardKinematicFactor(i, 0.00001, cfg['simulation']['model_path'])
+        for i in range(4)
+    ]
+
+    for fk_factor in fk_factors:
+        registry.register(fk_factor)
 
     # inisialise main solver object
+    contact_cfg = cfg["contact_factor"]
+    contact_factor = ContactFactor(
+        prior_contact_sigma=contact_cfg["prior_contact_sigma"]
+    )
+    registry.register(contact_factor)
+
+    # initialise main solver object
     estimator = Estimator(est_cfg, registry, preint_params)
 
     # main loop
@@ -108,6 +132,10 @@ def main():
     pos, quat = bridge._extract_base_pose()
     contacts = bridge._extract_contacts()
     joint_states = bridge._extract_joint_states()
+    fk_contact_rotation = np.stack([
+        fk_factors[i].contact_rotation(joint_states[i])
+        for i in range(4)
+    ])
 
     sensor_data = {
         'imu_acc': acc, #    corrupted by noise
@@ -116,13 +144,20 @@ def main():
         'base_quat': quat,
         'foot_contacts': contacts,
         'joint_states': joint_states,
+        'fk_contact_rotation': fk_contact_rotation, # usually identity or ground truth if available. See contact preintegrator docs.
         'dt': dt,
     }
 
-    if noise_gen:
-        acc, gyro = noise_gen.corrupt(acc, gyro, dt)
+    print("RAW BASE QUAT INIT:", sensor_data["base_quat"])
+
+    if imu_noise_gen:
+        acc, gyro = imu_noise_gen.corrupt(acc, gyro, dt)
         sensor_data['imu_acc'] = acc
         sensor_data['imu_gyro'] = gyro
+    
+    if joint_noise_gen:
+        joint_states = joint_noise_gen.corrupt(joint_states, dt)
+        sensor_data["joint_states"] = joint_states
 
     # trigger the prior factors
     estimator.initialise(sensor_data)
@@ -152,6 +187,10 @@ def main():
             pos, quat = bridge._extract_base_pose()
             contacts = bridge._extract_contacts()
             joint_states = bridge._extract_joint_states()
+            fk_contact_rotation = np.stack([
+                fk_factors[i].contact_rotation(joint_states[i])
+                for i in range(4)
+            ])
 
             viewer.sync()
 
@@ -179,8 +218,11 @@ def main():
             # ────────────────────────────────────────────────────────────
 
             # corrupt our readings
-            if noise_gen:
-                acc, gyro = noise_gen.corrupt(acc, gyro, dt)
+            if imu_noise_gen:
+                acc, gyro = imu_noise_gen.corrupt(acc, gyro, dt)
+            
+            if joint_noise_gen:
+                joint_states = joint_noise_gen.corrupt(joint_states, dt)
 
             sensor_data = {
                 'imu_acc': acc,
@@ -189,19 +231,21 @@ def main():
                 'base_quat': quat,
                 'foot_contacts': contacts,
                 'joint_states': joint_states,
+                'fk_contact_rotation': fk_contact_rotation,
                 'dt': dt,
             }
+
             # pass noisy measurements to imu preintegrator
             estimator.step(sensor_data)
             # estimator internally decides when to run isam2
 
-            #slow down the simulation to real time
+            # slow down the simulation to real time
             time_until_next_step = dt - (time.time() - step_start)
             if time_until_next_step > 0:
                 time.sleep(time_until_next_step)
-                
+
             if not viewer.is_running():
-                print("Window closed - sumulation terminated")
+                print("Window closed - simulation terminated")
                 break
 
     # results and visualisation
@@ -227,7 +271,7 @@ def main():
             ax.legend()
             ax.grid(True)
         axes[-1].set_xlabel('Time [s]')
-        fig.suptitle('A2 State Estimation — IMU+FK (iSAM2)')
+        fig.suptitle('A2 State Estimation — IMU+FKF+CF(iSAM2)')
         plt.tight_layout()
         plt.show()
 

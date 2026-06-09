@@ -32,6 +32,10 @@ class SimBridge:
         self.data = mujoco.MjData(self.model)
         # store dt for downstream users
         self._dt = float(dt)
+        print("Loaded XML:", xml_path)
+        print("Number of actuators:", self.model.nu)
+        print("Control shape:", self.data.ctrl.shape)
+        
 
         # if model.opt.timestep exists, keep it; otherwise leave model default
         try:
@@ -153,6 +157,7 @@ class SimBridge:
                             break
         return contacts
 
+
     def _extract_joint_states(self) -> np.ndarray:
         leg_joint_map = {
             0: ["FL_hip_joint", "FL_thigh_joint", "FL_calf_joint"],
@@ -180,3 +185,7 @@ class SimBridge:
                 joint_states[leg_id, j] = self.data.qpos[qadr]
 
         return joint_states
+
+
+    def _extract_fk_contact_rotation(self) -> np.ndarray:
+        return np.repeat(np.eye(3)[None, :, :], 4, axis=0)
